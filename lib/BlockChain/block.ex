@@ -11,7 +11,8 @@ defmodule BlockChain.Block do
     :block_number,
     :block_header,
     :transactions,
-    :coinbase_transaction,
+    # coinbase_transaction is to be included in the list of transactions
+    # :coinbase_transaction,
     # stretch goal
     :added_transactions,
     # stretch goal

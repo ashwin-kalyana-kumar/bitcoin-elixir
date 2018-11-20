@@ -8,6 +8,8 @@ defmodule User.UserStruct do
     :id,
     :wallet,
     :neighbors,
-    :incoming_txns
+    :incoming_txns,
+    :spawned_process,
+    :block_chain
   ]
 end
