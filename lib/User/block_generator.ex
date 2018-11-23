@@ -61,6 +61,15 @@ defmodule User.BlockGenerator do
     end
   end
 
+  defp get_input_transactions(transactions) do
+    []
+  end
+
+  defp get_input_transactions(transactions) do
+    [txn | rest] = transactions
+    txn.transaction_input ++ get_input_transactions(rest)
+  end
+
   def generate_next_block(
         block_number,
         transactions,
@@ -73,6 +82,7 @@ defmodule User.BlockGenerator do
         success_pid
       ) do
     coinbase_txn = generate_coinbase_transaction(10, private_key, public_key, public_key_hash)
+    input_txns = get_input_transactions(transactions)
     transactions = [coinbase_txn | transactions]
     txids = get_txids_from_transactions(transactions)
     merkle_root = calculate_merkle(txids)
@@ -89,7 +99,7 @@ defmodule User.BlockGenerator do
       transactions: transactions
     }
 
-    block = generate_hash(block, :rand.uniform(100_000_000), condition_number)
+    block = generate_hash(block, :rand.uniform(1_000_000_000), condition_number)
     GenServer.cast(success_pid, {:you_found_a_new_block, block})
   end
 end
