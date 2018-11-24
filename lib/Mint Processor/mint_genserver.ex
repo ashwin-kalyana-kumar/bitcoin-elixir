@@ -1,4 +1,4 @@
-defmodule MintProcessor.GenServer do
+defmodule MintProcessor.MintGenServer do
 
   use GenServer
 
@@ -29,8 +29,10 @@ defmodule MintProcessor.GenServer do
   end
 
   def handle_cast({:tx_happened, tx_id},mint_state) do
-
+    # the whole transaction
     old_uv_tx = mint_state.unverified_transaction
+
+    # Verify Signature
 
     new_uv_tx = Map.put_new(old_uv_tx, tx_id, -1)
 
@@ -40,11 +42,11 @@ defmodule MintProcessor.GenServer do
     {:noreply,mint_state}
   end
 
-  def handle_cast({:block_generated, tx_used_list, _blockchain}, mint_state) do
+  def handle_cast({:block_generated, tx_used_list, _block}, mint_state) do
     old_used_list = mint_state.used_transaction
     old_uv_tx = mint_state.unverified_transaction
     #old_blockchain = mint_state.mint_blockchain
-
+    # first coinbase tx add in UV
     new_used_list = tx_used_list + old_used_list
 
     [head | tail] = tx_used_list
@@ -59,10 +61,12 @@ defmodule MintProcessor.GenServer do
     {:noreply,new_mint_state}
   end
 
+  def handle_call({:verify_unspent_tx,unspent_tx_list, amount, pb_key_script},_from,mint_state) do
 
+    # tru false return
+  end
 
-  # def function_check() do
-  #   # Hi
-  # end
-
+  def handle_call({:get_blockchain},_from,mint_state) do
+    {:reply,mint_state.mint_blockchain,mint_state}
+  end
 end

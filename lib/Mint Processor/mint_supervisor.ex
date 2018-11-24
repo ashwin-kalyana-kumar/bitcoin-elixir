@@ -1,4 +1,4 @@
-defmodule MintProcessor.Supervisor do
+defmodule MintProcessor.MintSupervisor do
 
   use DynamicSupervisor
 
@@ -7,7 +7,7 @@ defmodule MintProcessor.Supervisor do
   end
 
   def start_child() do
-    spec = %{id: 1, restart: :temporary, start: {MintProcessor.GenServer, :start_link, []}}
+    spec = %{id: 1, restart: :temporary, start: {MintProcessor.MintGenServer, :start_link, []}}
     {:ok, _child} = DynamicSupervisor.start_child(:mint_super, spec)
   end
 
