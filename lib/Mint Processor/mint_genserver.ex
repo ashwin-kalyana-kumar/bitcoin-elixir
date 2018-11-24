@@ -1,15 +1,18 @@
 defmodule MintProcessor.MintGenServer do
-
   use GenServer
 
   def start_link() do
-
     uv_tx = %{}
     us_tx = %{}
     used_tx = []
 
-    mint_state = %MintProcessor.Structure{unverified_transaction: uv_tx, unused_transaction: us_tx, used_transaction: used_tx}
-    GenServer.start_link(__MODULE__,mint_state)
+    mint_state = %MintProcessor.Structure{
+      unverified_transaction: uv_tx,
+      unused_transaction: us_tx,
+      used_transaction: used_tx
+    }
+
+    GenServer.start_link(__MODULE__, mint_state)
   end
 
   def init(mint_state) do
@@ -21,14 +24,238 @@ defmodule MintProcessor.MintGenServer do
   end
 
   def update_uvtx_used_tx(tx_remove, tx_list_remove, uv_tx) do
-
     update_uv_tx = Map.delete(uv_tx, tx_remove)
 
     [head | tail] = tx_list_remove
     update_uvtx_used_tx(head, tail, update_uv_tx)
   end
 
-  def handle_cast({:tx_happened, tx_id},mint_state) do
+  ####################################################################
+
+  def check_authenticity_of_txn(transaction) do
+    sign = transaction.signature
+    transaction = transaction |> Map.put(:signature, nil)
+
+    authentic =
+      Crypto.CryptoModule.verify_transaction_sign(transaction.full_public_key, transaction, sign)
+
+    cond do
+      authentic -> :authentic
+      true -> :invalid
+    end
+  end
+
+  defp check_block_hash(block) do
+    hash = block.block_header.block_hash
+    block = block |> Map.put(:block_header, Map.put(block.block_header, :block_hash, nil))
+    new_hash = Crypto.CryptoModule.hash_block(block)
+
+    if(new_hash === hash) do
+      true
+    else
+      false
+    end
+  end
+
+  defp reduce_merkle([a, _b | _rest]) when a === :end do
+    [:end, :end]
+  end
+
+  defp reduce_merkle([a, b | _rest]) when b === :end do
+    [Crypto.CryptoModule.hash_binary(a <> a), :end, :end]
+  end
+
+  defp reduce_merkle([a, b | rest]) do
+    [Crypto.CryptoModule.hash_binary(a <> b) | reduce_merkle(rest)]
+  end
+
+  defp calculate_merkle([a, b | rest]) do
+    cond do
+      a === :end ->
+        IO.puts("This is not supposed to happen!")
+        0
+
+      b === :end ->
+        a
+
+      true ->
+        calculate_merkle(reduce_merkle([a, b | rest]))
+    end
+  end
+
+  defp get_txids_from_transactions(transactions) when transactions == [] do
+    [:end, :end]
+  end
+
+  defp get_txids_from_transactions(transactions) do
+    [txn | rest] = transactions
+    [txn.txid | get_txids_from_transactions(rest)]
+  end
+
+  defp verify_block(prev_block_list, block) do
+    invalid_txns =
+      block.transactions
+      |> Enum.filter(fn txn -> check_authenticity_of_txn(txn) === :invalid end)
+
+    txids = get_txids_from_transactions(block.transactions)
+    merkle = calculate_merkle(txids)
+
+    prev_block =
+      prev_block_list
+      |> Enum.filter(fn x -> x.header.block_hash === block.header.previous_block_hash end)
+
+    block_integrity = check_block_hash(block)
+
+    if(
+      invalid_txns === [] and merkle === block.block_header.merkle_root and prev_block != [] and
+        block_integrity
+    ) do
+      :valid
+    else
+      :invalid
+    end
+  end
+
+  defp update_maps(removed_blocks, tx_map, unused_map) when removed_blocks == [] do
+    {tx_map, unused_map}
+  end
+
+  defp update_maps(removed_blocks, tx_map, unused_map) do
+    [first | rest] = removed_blocks
+    tx_map = tx_map |> Map.delete(hd(first.transactions).txid)
+    unused_map = unused_map |> Map.delete(hd(first.transactions).txid)
+    update_maps(rest, tx_map, unused_map)
+  end
+
+  defp delete_unwanted_branches(chain_map, last_block_number, tx_map, unused_map) do
+    [latest_block | _rest] = chain_map |> Map.get(last_block_number)
+    prev_hash = latest_block.block_header.previous_block_hash
+
+    prev1_block =
+      chain_map
+      |> Map.get(last_block_number - 1)
+      |> Enum.filter(fn x -> x.block_header.block_hash === prev_hash end)
+
+    prev2_block =
+      chain_map
+      |> Map.get(last_block_number - 2)
+      |> Enum.filter(fn x ->
+        x.block_header.block_hash === prev1_block.block_header.previous_block_hash
+      end)
+
+    prev3_block =
+      chain_map
+      |> Map.get(last_block_number - 3)
+      |> Enum.filter(fn x ->
+        x.block_header.block_hash === prev2_block.block_header.previous_block_hash
+      end)
+
+    prev4_block =
+      chain_map
+      |> Map.get(last_block_number - 4)
+      |> Enum.filter(fn x ->
+        x.block_header.block_hash === prev3_block.block_header.previous_block_hash
+      end)
+
+    prev5_block =
+      chain_map
+      |> Map.get(last_block_number - 5)
+      |> Enum.filter(fn x ->
+        x.block_header.block_hash === prev4_block.block_header.previous_block_hash
+      end)
+
+    removed_blocks =
+      chain_map
+      |> Map.get(last_block_number - 5)
+      |> Enum.reject(fn x ->
+        x.block_header.block_hash === prev4_block.block_header.previous_block_hash
+      end)
+
+    chain_map = chain_map |> Map.put(last_block_number - 5, [prev5_block])
+    {new_tx_map, new_unused_map} = update_maps(removed_blocks, tx_map, unused_map)
+    {chain_map, new_tx_map, new_unused_map}
+  end
+
+  defp remove_from_unused(input, unused_map, tx_map) when input == [] or input == nil do
+    {unused_map, tx_map}
+  end
+
+  defp remove_from_unused(input, unused_map, tx_map) do
+    [first | rest] = input
+    unused_map = unused_map |> Map.delete(first.txid)
+    tx_map = tx_map |> Map.delete(first.txid)
+    remove_from_unused(rest, unused_map, tx_map)
+  end
+
+  defp move_transactions(unverified_map, unused_map, tx_map, txns) when txns == [] do
+    {unverified_map, unused_map, tx_map}
+  end
+
+  defp move_transactions(unverified_map, unused_map, tx_map, txns) do
+    [first | rest] = txns
+    input = first.transaction_input
+    {unused_map, tx_map} = remove_from_unused(input, unused_map, tx_map)
+    unverified_map |> Map.delete(first)
+    unused_map |> Map.put(first, -1)
+    move_transactions(unverified_map, unused_map, tx_map, rest)
+  end
+
+  defp add_block_to_chain(chain, block, tx_map, unused_map, unverified_map) do
+    cond do
+      block.block_number < chain.latest_block_number - 5 ->
+        {chain, tx_map, unused_map, unverified_map}
+
+      block.block_number <= chain.latest_block_number ->
+        updated_map = chain.block_map |> Map.update(block.number, [block], &[block, &1])
+        chain = chain |> Map.put(:block_map, updated_map)
+        {chain, tx_map, unused_map, unverified_map}
+
+      block.block_number == chain.latest_block_number + 1 ->
+        updated_map = chain.block_map |> Map.update(block.number, [block], &[block, &1])
+
+        {updated_map, new_tx_map, new_unused_map} =
+          delete_unwanted_branches(updated_map, block.block_number, tx_map, unused_map)
+
+        chain =
+          chain
+          |> Map.put(:block_map, updated_map)
+          |> Map.put(:latest_block_number, block.block_number)
+
+        tenth_block = chain |> Map.get(:block_map) |> Map.get(block.block_number - 10)
+
+        if(tenth_block == nil) do
+          {chain, new_tx_map, new_unused_map, unverified_map}
+        else
+          tenth_block = hd(tenth_block)
+
+          {new_uv_map, new_unused_map, new_tx_map} =
+            move_transactions(
+              unverified_map,
+              new_unused_map,
+              new_tx_map,
+              tl(tenth_block.transactions)
+            )
+
+          {chain, new_tx_map, new_unused_map, new_uv_map}
+        end
+
+      true ->
+        {chain, tx_map, unused_map, unverified_map}
+    end
+  end
+
+  defp already_got_this_block?(block, chain) do
+    block_list = chain.block_map |> Map.get(block.block_number, [])
+
+    block_list
+    |> Enum.filter(fn x -> x.block_header.block_hash == block.block_header.block_hash end)
+
+    block_list != []
+  end
+
+  ############################################################################
+
+  def handle_cast({:tx_happened, tx_id}, mint_state) do
     # the whole transaction
     old_uv_tx = mint_state.unverified_transaction
 
@@ -36,37 +263,58 @@ defmodule MintProcessor.MintGenServer do
 
     new_uv_tx = Map.put_new(old_uv_tx, tx_id, -1)
 
-    mint_state = mint_state |>
-                  Map.update!(:unverified_transaction, fn _x -> new_uv_tx end)
+    mint_state =
+      mint_state
+      |> Map.update!(:unverified_transaction, fn _x -> new_uv_tx end)
 
-    {:noreply,mint_state}
+    {:noreply, mint_state}
   end
 
-  def handle_cast({:block_generated, tx_used_list, _block}, mint_state) do
-    old_used_list = mint_state.used_transaction
-    old_uv_tx = mint_state.unverified_transaction
-    #old_blockchain = mint_state.mint_blockchain
-    # first coinbase tx add in UV
-    new_used_list = tx_used_list + old_used_list
+  def handle_cast({:block_generated, block}, mint_state) do
+    # TODO: check if you already have that block, if so ignore this message, else do the following and broadcast this message
 
-    [head | tail] = tx_used_list
-    updated_uv_tx = update_uvtx_used_tx(head, tail, old_uv_tx)
+    if(already_got_this_block?(block, mint_state.mint_blockchain)) do
+      {:noreply, mint_state}
+    else
+      valid =
+        verify_block(
+          Map.get(
+            mint_state.mint_blockchain.block_map,
+            mint_state.mint_blockchain.latest_block_number
+          ),
+          block
+        )
 
-    #update_blockchain =
+      {new_block_chain, new_tx_map, new_unused, new_unverified} =
+        if(valid == :valid) do
+          add_block_to_chain(
+            mint_state.mint_blockchain,
+            block,
+            mint_state.mint_tx_map,
+            mint_state.unused_transaction,
+            mint_state.unverified_transaction
+          )
+        else
+          {mint_state.mint_blockchain, mint_state.mint_tx_map, mint_state.unused_transaction,
+           mint_state.unverified_transaction}
+        end
 
-    new_mint_state = mint_state
-                  |> Map.update!(:used_transaction, fn _x -> new_used_list end)
-                  |> Map.update!(:unverified_transaction, fn _x -> updated_uv_tx end)
-                  #|> Map.update!(:mint_blockchain, fn _x -> update_blockchain end)
-    {:noreply,new_mint_state}
+      mint_state =
+        mint_state
+        |> Map.put(:mint_blockchain, new_block_chain)
+        |> Map.put(:mint_tx_map, new_tx_map)
+        |> Map.put(:unused_transaction, new_unused)
+        |> Map.put(:unverified_transaction, new_unverified)
+
+      {:noreply, mint_state}
+    end
   end
 
-  def handle_call({:verify_unspent_tx,unspent_tx_list, amount, pb_key_script},_from,mint_state) do
-
+  def handle_call({:verify_unspent_tx, unspent_tx_list, amount, pb_key_script}, _from, mint_state) do
     # tru false return
   end
 
-  def handle_call({:get_blockchain},_from,mint_state) do
-    {:reply,mint_state.mint_blockchain,mint_state}
+  def handle_call({:get_blockchain}, _from, mint_state) do
+    {:reply, mint_state.mint_blockchain, mint_state}
   end
 end

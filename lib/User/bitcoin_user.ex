@@ -120,9 +120,6 @@ defmodule User.BitcoinUser do
     authentic =
       Crypto.CryptoModule.verify_transaction_sign(transaction.full_public_key, transaction, sign)
 
-    IO.puts("in here")
-    IO.inspect(authentic)
-
     cond do
       authentic -> :authentic
       true -> :invalid
