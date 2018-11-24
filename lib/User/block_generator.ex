@@ -25,7 +25,7 @@ defmodule User.BlockGenerator do
     end
   end
 
-  defp get_txids_from_transactions(transctions) when transactions == [] do
+  defp get_txids_from_transactions(transactions) when transactions == [] do
     [:end, :end]
   end
 
