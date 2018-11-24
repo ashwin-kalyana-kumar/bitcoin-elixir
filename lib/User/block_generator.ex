@@ -61,6 +61,27 @@ defmodule User.BlockGenerator do
     end
   end
 
+  defp verify_transaction(mint_pid, transaction) do
+    # unspent = check_unspent(transaction.transaction_input, mint_pid)
+    unspent =
+      GenServer.call(
+        mint_pid,
+        {:verify_unspent_tx, transaction.transaction_input, transaction.transaction_output.amount}
+      )
+
+    sign = transaction.signature
+    transaction = transaction |> Map.put(:signature, nil)
+
+    authentic =
+      Crypto.CryptoModule.verify_transaction_sign(transaction.public_key, transaction, sign)
+
+    cond do
+      unspent and authentic -> :valid
+      authentic -> :authentic
+      true -> :invalid
+    end
+  end
+
   defp get_input_transactions(transactions) when transactions == [] do
     []
   end
@@ -79,10 +100,14 @@ defmodule User.BlockGenerator do
         private_key,
         public_key_hash,
         condition_number,
-        success_pid
+        success_pid,
+        mint_guy
       ) do
     coinbase_txn =
       generate_coinbase_transaction(coinbase_amount, private_key, public_key, public_key_hash)
+
+    transactions =
+      Enum.filter(transactions, fn x -> verify_transaction(mint_guy, x) == :valid end)
 
     input_txns = get_input_transactions(transactions)
     transactions = [coinbase_txn | transactions]

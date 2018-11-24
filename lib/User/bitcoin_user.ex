@@ -129,23 +129,6 @@ defmodule User.BitcoinUser do
     end
   end
 
-  defp verify_transaction(mint_pid, transaction) do
-    # unspent = check_unspent(transaction.transaction_input, mint_pid)
-    unspent = GenServer.call(mint_pid, {:verify_unspent_tx, transaction.transaction_input})
-
-    sign = transaction.signature
-    transaction = transaction |> Map.put(:signature, nil)
-
-    authentic =
-      Crypto.CryptoModule.verify_transaction_sign(transaction.public_key, transaction, sign)
-
-    cond do
-      unspent and authentic -> :valid
-      authentic -> :authentic
-      true -> :invalid
-    end
-  end
-
   defp check_block_hash(block) do
     hash = block.block_header.block_hash
     block = block |> Map.put(:block_header, Map.put(block.block_header, :block_hash, nil))
@@ -480,7 +463,8 @@ defmodule User.BitcoinUser do
             state.wallet.private_key,
             state.wallet.pubkey_hash_script,
             5,
-            self()
+            self(),
+            state.wallet.mint_master_pid
           ],
           nil
         )
@@ -521,7 +505,8 @@ defmodule User.BitcoinUser do
           state.wallet.private_key,
           state.wallet.pubkey_hash_script,
           5,
-          self()
+          self(),
+          state.wallet.mint_master_pid
         ],
         nil
       )
