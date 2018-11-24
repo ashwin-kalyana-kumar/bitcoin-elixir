@@ -3,7 +3,7 @@ defmodule User.BitcoinUser do
 
   def start_link(id, pid, neighbors, block_chain) do
     {pub_key, priv_key} = Crypto.CryptoModule.get_key_pair()
-    public_key_hash = Crypto.CryptoModule.hash(public_key)
+    public_key_hash = Crypto.CryptoModule.hash_key(pub_key)
 
     wallet = %User.Wallet{
       private_key: priv_key,
@@ -65,15 +65,15 @@ defmodule User.BitcoinUser do
     [txn_input | build_transaction_input(rest, hash)]
   end
 
-  defp build_transaction(
-         input_transactions,
-         amount,
-         pubkey_hash,
-         get_back_amount,
-         self_pubkey_hash,
-         full_public_key,
-         private_key
-       ) do
+  def build_transaction(
+        input_transactions,
+        amount,
+        pubkey_hash,
+        get_back_amount,
+        self_pubkey_hash,
+        full_public_key,
+        private_key
+      ) do
     txn_input = build_transaction_input(input_transactions, self_pubkey_hash)
 
     txn_output = %Transaction.TransactionOutput{
@@ -89,9 +89,9 @@ defmodule User.BitcoinUser do
       transaction_output: txn_output
     }
 
-    txid = Crypto.CryptoModule.hash(transaction)
+    txid = Crypto.CryptoModule.hash_transaction(transaction)
     transaction = transaction |> Map.put(:txid, txid)
-    signature = Crypto.CryptoModule.digital_sign(private_key, transaction)
+    signature = Crypto.CryptoModule.sign_transaction(private_key, transaction)
     transaction = transaction |> Map.put(:signature, signature)
     transaction
   end
@@ -113,11 +113,31 @@ defmodule User.BitcoinUser do
     end
   end
 
-  defp verify_transaction(mint_pid, transaction) do
-    unspent = check_unspent(transaction.transaction_input, mint_pid)
+  def check_authenticity_of_txn(transaction) do
     sign = transaction.signature
     transaction = transaction |> Map.put(:signature, nil)
-    authentic = Crypto.CryptoModule.verify_sign(transaction.public_key, transaction, sign)
+
+    authentic =
+      Crypto.CryptoModule.verify_transaction_sign(transaction.full_public_key, transaction, sign)
+
+    IO.puts("in here")
+    IO.inspect(authentic)
+
+    cond do
+      authentic -> :authentic
+      true -> :invalid
+    end
+  end
+
+  defp verify_transaction(mint_pid, transaction) do
+    # unspent = check_unspent(transaction.transaction_input, mint_pid)
+    unspent = GenServer.call(mint_pid, {:verify_unspent_tx, transaction.transaction_input})
+
+    sign = transaction.signature
+    transaction = transaction |> Map.put(:signature, nil)
+
+    authentic =
+      Crypto.CryptoModule.verify_transaction_sign(transaction.public_key, transaction, sign)
 
     cond do
       unspent and authentic -> :valid
@@ -129,7 +149,7 @@ defmodule User.BitcoinUser do
   defp check_block_hash(block) do
     hash = block.block_header.block_hash
     block = block |> Map.put(:block_header, Map.put(block.block_header, :block_hash, nil))
-    new_hash = Crypto.CryptoModule.hash(block)
+    new_hash = Crypto.CryptoModule.hash_block(block)
 
     if(new_hash === hash) do
       true
@@ -138,16 +158,16 @@ defmodule User.BitcoinUser do
     end
   end
 
-  defp reduce_merkle([a, b | rest]) when a === :end do
+  defp reduce_merkle([a, _b | _rest]) when a === :end do
     [:end, :end]
   end
 
-  defp reduce_merkle([a, b | rest]) when b === :end do
-    [Crypto.CryptoModule.hash(a <> a), :end, :end]
+  defp reduce_merkle([a, b | _rest]) when b === :end do
+    [Crypto.CryptoModule.hash_binary(a <> a), :end, :end]
   end
 
   defp reduce_merkle([a, b | rest]) do
-    [Crypto.CryptoModule.hash(a <> b) | reduce_merkle(rest)]
+    [Crypto.CryptoModule.hash_binary(a <> b) | reduce_merkle(rest)]
   end
 
   defp calculate_merkle([a, b | rest]) do
@@ -164,7 +184,7 @@ defmodule User.BitcoinUser do
     end
   end
 
-  defp get_txids_from_transactions(transctions) when transactions == [] do
+  defp get_txids_from_transactions(transactions) when transactions == [] do
     [:end, :end]
   end
 
@@ -175,14 +195,15 @@ defmodule User.BitcoinUser do
 
   defp verify_block(prev_block_list, block) do
     invalid_txns =
-      block.transactions |> Enum.take_while(fn txn -> verify_transaction(txn) === :invalid end)
+      block.transactions
+      |> Enum.filter(fn txn -> check_authenticity_of_txn(txn) === :invalid end)
 
     txids = get_txids_from_transactions(block.transactions)
     merkle = calculate_merkle(txids)
 
     prev_block =
       prev_block_list
-      |> Enum.take_while(fn x -> x.header.block_hash === block.header.previous_block_hash end)
+      |> Enum.filter(fn x -> x.header.block_hash === block.header.previous_block_hash end)
 
     block_integrity = check_block_hash(block)
 
@@ -203,37 +224,37 @@ defmodule User.BitcoinUser do
     prev1_block =
       chain_map
       |> Map.get(last_block_number - 1)
-      |> Enum.take_while(fn x -> x.block_header.block_hash === prev_hash end)
+      |> Enum.filter(fn x -> x.block_header.block_hash === prev_hash end)
 
     prev2_block =
       chain_map
       |> Map.get(last_block_number - 2)
-      |> Enum.take_while(fn x ->
+      |> Enum.filter(fn x ->
         x.block_header.block_hash === prev1_block.block_header.previous_block_hash
       end)
 
     prev3_block =
       chain_map
       |> Map.get(last_block_number - 3)
-      |> Enum.take_while(fn x ->
+      |> Enum.filter(fn x ->
         x.block_header.block_hash === prev2_block.block_header.previous_block_hash
       end)
 
     prev4_block =
       chain_map
       |> Map.get(last_block_number - 4)
-      |> Enum.take_while(fn x ->
+      |> Enum.filter(fn x ->
         x.block_header.block_hash === prev3_block.block_header.previous_block_hash
       end)
 
     prev5_block =
       chain_map
-      |> Map.get(latest_block_number - 5)
-      |> Enum.take_while(fn x ->
+      |> Map.get(last_block_number - 5)
+      |> Enum.filter(fn x ->
         x.block_header.block_hash === prev4_block.block_header.previous_block_hash
       end)
 
-    chain_map = chain_map |> Map.put(latest_block_number - 5, [prev5_block])
+    chain_map |> Map.put(last_block_number - 5, [prev5_block])
   end
 
   defp add_block_to_chain(chain, block) do
@@ -258,7 +279,7 @@ defmodule User.BitcoinUser do
     end
   end
 
-  defp update_incoming_txns(transctions, block) do
+  defp update_incoming_txns(transactions, block) do
     transactions |> Enum.reject(&(&1 in block.transactions))
   end
 
@@ -274,6 +295,19 @@ defmodule User.BitcoinUser do
     GenServer.cast(neighbors.random_guy, {:new_block, block})
   end
 
+  defp already_got_this_transaction(transaction, incoming_txns) do
+    transaction in incoming_txns
+  end
+
+  defp already_got_this_block?(block, chain) do
+    block_list = chain.block_map |> Map.get(block.block_number, [])
+
+    block_list
+    |> Enum.filter(fn x -> x.block_header.block_hash == block.block_header.block_hash end)
+
+    block_list != []
+  end
+
   def handle_cast({:send_hash, pid}, state) do
     GenServer.cast(
       pid,
@@ -284,7 +318,7 @@ defmodule User.BitcoinUser do
   end
 
   def handle_cast({:this_is_my_hash, id, hash, pid}, state) do
-    value = %PubKeyHashStruct{user_pid: pid, pubkey_hash: hash}
+    value = %User.PubKeyHashStruct{user_pid: pid, pubkey_hash: hash}
     pubkey_hashes = state.wallet |> Map.get(:pubkey_hashes)
     pubkey_hashes = pubkey_hashes |> Map.put(id, value)
     updated_wallet = state.wallet |> Map.put(:pubkey_hashes, pubkey_hashes)
@@ -343,11 +377,12 @@ defmodule User.BitcoinUser do
 
         GenServer.cast(
           Map.get(state.wallet.pubkey_hashes, id).user_pid,
-          {:you_received_bitcoin, txid, amount}
+          {:you_received_bitcoin, transaction.txid, amount}
         )
 
         broadcast_transaction(transaction, state.neighbors)
-        # TODO: Tell the mint guy that you made this transaction
+        # TODO: tell mint guy that you made this txn
+        GenServer.cast(state.wallet.mint_master_pid, {:tx_happened, transaction})
         {:noreply, state}
     end
   end
@@ -355,7 +390,7 @@ defmodule User.BitcoinUser do
   def handle_cast({:you_received_bitcoin, txid, amount}, state) do
     new_wallet =
       state.wallet
-      |> Map.update(:unused_transactions, [], &[transaction.txid | &1])
+      |> Map.update(:unused_transactions, [], &[txid | &1])
       |> Map.update(:balance, 0, &(&1 + amount))
 
     state = state |> Map.put(:wallet, new_wallet)
@@ -363,54 +398,133 @@ defmodule User.BitcoinUser do
   end
 
   def handle_cast({:new_transaction, transaction}, state) do
-    # TODO: check if you already have that block, if so ignore this message, else do the following and broadcast this message
-    state = state |> Map.update(:incoming_txns, [transaction], &[transaction | &1])
+    if(already_got_this_transaction(state, state.incoming_txns)) do
+      {:noreply, state}
+    else
+      state = state |> Map.update(:incoming_txns, [transaction], &[transaction | &1])
+      {:noreply, state}
+    end
+  end
+
+  def handle_cast({:update_neighbors, node_map}, state) do
+    neighbours = state.neighbours
+    {_, left_n} = Map.fetch!(node_map, neighbours.left_guy)
+    {_, right_n} = Map.fetch!(node_map, neighbours.right_guy)
+    {_, random_n} = Map.fetch!(node_map, neighbours.random_guy)
+
+    update_neighbours = %User.NeighborStruct{
+      left_guy: left_n,
+      right_guy: right_n,
+      random_guy: random_n
+    }
+
+    state = state |> Map.put(:neighbors, update_neighbours)
     {:noreply, state}
   end
 
-  def handle_cast({:update_neighbors, neighbors}, state) do
-    state = state |> Map.put(:neighbors, neighbors)
+  def handle_cast({:update_neighbours_dueto_new_node, {which_neigh, node_pid}}, state) do
+    neighbours = state.neighbors
+
+    neighbours =
+      if which_neigh == :right_negh do
+        Map.put(neighbours, :right_guy, node_pid)
+      else
+        Map.put(neighbours, :left_guy, node_pid)
+      end
+
+    state =
+      state
+      |> Map.put(:neighbors, neighbours)
+
     {:noreply, state}
   end
 
   def handle_cast({:new_block, block}, state) do
     # TODO: check if you already have that block, if so ignore this message, else do the following and broadcast this message
-    spawned_pid = state.spawned_process
 
-    if Process.alive?(spawned_pid) do
-      Process.exit(spawned_pid, :kill)
-    end
+    if(already_got_this_block?(block, state.block_chain)) do
+      {:noreply, state}
+    else
+      broadcast_block(block, state.neighbors)
+      spawned_pid = state.spawned_process
 
-    valid = verify_block(block)
-
-    {new_block_chain, updated_incoming_txns} =
-      if(valid == :valid) do
-        new_chain = add_block_to_chain(state.block_chain, block)
-        updated_txns = update_incoming_txns(state.incoming_txns, block)
-        {new_chain, updated_txns}
-      else
-        {state.block_chain, state.incoming_txns}
+      if Process.alive?(spawned_pid) do
+        Process.exit(spawned_pid, :kill)
       end
 
-    # TODO: Spawn a process to calculate the block
-    # TODO: update the spawned_pid
+      valid =
+        verify_block(
+          Map.get(state.block_chain.block_map, state.block_chain.latest_block_number),
+          block
+        )
 
-    state =
-      state
-      |> Map.put(:block_chain, new_block_chain)
-      |> Map.put(:incoming_txns, updated_incoming_txns)
-      |> Map.put(:spawned_process, new_pid)
+      {new_block_chain, updated_incoming_txns} =
+        if(valid == :valid) do
+          new_chain = add_block_to_chain(state.block_chain, block)
+          updated_txns = update_incoming_txns(state.incoming_txns, block)
+          {new_chain, updated_txns}
+        else
+          {state.block_chain, state.incoming_txns}
+        end
 
-    {:noreply, state}
+      new_pid =
+        Process.spawn(
+          User.BlockGenerator,
+          :generate_next_block,
+          [
+            block.block_number + 1,
+            state.incoming_txns,
+            50,
+            block.block_header.block_hash,
+            state.wallet.public_key,
+            state.wallet.private_key,
+            state.wallet.pubkey_hash_script,
+            5,
+            self()
+          ],
+          nil
+        )
+
+      # TODO: Spawn a process to calculate the block
+      # TODO: update the spawned_pid
+
+      state =
+        state
+        |> Map.put(:block_chain, new_block_chain)
+        |> Map.put(:incoming_txns, updated_incoming_txns)
+        |> Map.put(:spawned_process, new_pid)
+
+      {:noreply, state}
+    end
   end
 
-  def handle_cast({:you_found_a_new_block, block}, state) do
-    broadcast_block(block, neighbors)
+  def handle_cast({:you_found_a_new_block, block, input_txns}, state) do
+    broadcast_block(block, state.neighbors)
     new_chain = add_block_to_chain(state.block_chain, block)
     updated_txns = update_incoming_txns(state.incoming_txns, block)
 
     # TODO: Spawn a process to calculate the block
     # TODO: update the spawned_pid
+    # TODO: Send the input_txns to the mint processor
+    GenServer.cast(state.wallet.mint_master_pid, {:block_generated, input_txns, block})
+
+    new_pid =
+      Process.spawn(
+        User.BlockGenerator,
+        :generate_next_block,
+        [
+          block.block_number + 1,
+          state.incoming_txns,
+          50,
+          block.block_header.block_hash,
+          state.wallet.public_key,
+          state.wallet.private_key,
+          state.wallet.pubkey_hash_script,
+          5,
+          self()
+        ],
+        nil
+      )
 
     state =
       state
@@ -419,5 +533,11 @@ defmodule User.BitcoinUser do
       |> Map.put(:spawned_process, new_pid)
 
     {:noreply, state}
+  end
+
+  def handle_call({:get_neighbours}, _from, state) do
+    neighbours = state.neighbors
+
+    {:reply, neighbours, state}
   end
 end

@@ -1,14 +1,14 @@
 defmodule User.BlockGenerator do
-  defp reduce_merkle([a, b | rest]) when a === :end do
+  defp reduce_merkle([a, _b | _rest]) when a === :end do
     [:end, :end]
   end
 
-  defp reduce_merkle([a, b | rest]) when b === :end do
-    [Crypto.CryptoModule.hash(a <> a), :end, :end]
+  defp reduce_merkle([a, b | _rest]) when b === :end do
+    [Crypto.CryptoModule.hash_binary(a <> a), :end, :end]
   end
 
   defp reduce_merkle([a, b | rest]) do
-    [Crypto.CryptoModule.hash(a <> b) | reduce_merkle(rest)]
+    [Crypto.CryptoModule.hash_binary(a <> b) | reduce_merkle(rest)]
   end
 
   defp calculate_merkle([a, b | rest]) do
@@ -25,7 +25,7 @@ defmodule User.BlockGenerator do
     end
   end
 
-  defp get_txids_from_transactions(transctions) when transactions == [] do
+  defp get_txids_from_transactions(transactions) when transactions == [] do
     [:end, :end]
   end
 
@@ -34,7 +34,7 @@ defmodule User.BlockGenerator do
     [txn.txid | get_txids_from_transactions(rest)]
   end
 
-  defp generate_coinbase_transaction(amount, private_key, public_key, public_key_hash) do
+  def generate_coinbase_transaction(amount, private_key, public_key, public_key_hash) do
     coinbase_txn = %Transaction.Transaction{
       full_public_key: public_key,
       transaction_output: %Transaction.TransactionOutput{
@@ -43,25 +43,25 @@ defmodule User.BlockGenerator do
       }
     }
 
-    txid = Crypto.CryptoModule.hash(coinbase_txn)
+    txid = Crypto.CryptoModule.hash_transaction(coinbase_txn)
     coinbase_txn = coinbase_txn |> Map.put(:txid, txid)
-    sign = Crypto.CryptoModule.sign(private_key, coinbase_txn)
+    sign = Crypto.CryptoModule.sign_transaction(private_key, coinbase_txn)
     coinbase_txn |> Map.put(:signature, sign)
   end
 
   def generate_hash(block, nonce, condition_number) do
-    block = block |> Map.update?(:block_header, fn x -> x |> Map.put(:nonce, nonce) end)
-    hash = Crypto.CryptoModule.hash(block)
+    block = block |> Map.update!(:block_header, fn x -> x |> Map.put(:nonce, nonce) end)
+    hash = Crypto.CryptoModule.hash_block(block)
     <<val::size(condition_number), _rest::bitstring>> = hash
 
     if(val == 0) do
-      block |> Map.update?(:block_header, fn x -> x |> Map.put(:block_hash, hash) end)
+      block |> Map.update!(:block_header, fn x -> x |> Map.put(:block_hash, hash) end)
     else
       generate_hash(block, nonce + 1, condition_number)
     end
   end
 
-  defp get_input_transactions(transactions) do
+  defp get_input_transactions(transactions) when transactions == [] do
     []
   end
 
@@ -81,25 +81,27 @@ defmodule User.BlockGenerator do
         condition_number,
         success_pid
       ) do
-    coinbase_txn = generate_coinbase_transaction(10, private_key, public_key, public_key_hash)
+    coinbase_txn =
+      generate_coinbase_transaction(coinbase_amount, private_key, public_key, public_key_hash)
+
     input_txns = get_input_transactions(transactions)
     transactions = [coinbase_txn | transactions]
     txids = get_txids_from_transactions(transactions)
     merkle_root = calculate_merkle(txids)
 
-    header = %Block.BlockHeader{
+    header = %BlockChain.BlockHeader{
       previous_block_hash: previous_block_hash,
       merkle_root: merkle_root,
       timestamp: :calendar.datetime_to_gregorian_seconds(:calendar.universal_time())
     }
 
-    block = %Block.Block{
+    block = %BlockChain.Block{
       block_number: block_number,
       block_header: header,
       transactions: transactions
     }
 
     block = generate_hash(block, :rand.uniform(1_000_000_000), condition_number)
-    GenServer.cast(success_pid, {:you_found_a_new_block, block})
+    GenServer.cast(success_pid, {:you_found_a_new_block, block, input_txns})
   end
 end
