@@ -7,7 +7,8 @@ defmodule Bitcoin do
     receive do
       :hello -> nil
     after
-      5_000 -> IO.puts("starting new guy")
+      5_000 ->
+        IO.puts("starting new guy")
     end
   end
 
@@ -40,12 +41,22 @@ defmodule Bitcoin do
     IO.inspect(spec_list)
     start_node_mining(spec_list)
     wait_indef()
-    child_pid = User.BitcoinSupervisor.add_new_node(mint_pid)
-    keep_requesting(child_pid, 250, spec_list)
+    GenServer.cast(mint_pid, {:print_bro})
+    # child_pid = User.BitcoinSupervisor.add_new_node(mint_pid)
+
+    #    keep_requesting(child_pid, 250, spec_list)
     wait_indef()
+    GenServer.cast(mint_pid, {:print_bro})
+
     wait_indef()
+    GenServer.cast(mint_pid, {:print_bro})
+
     wait_indef()
+    GenServer.cast(mint_pid, {:print_bro})
+
     wait_indef()
+    GenServer.cast(mint_pid, {:print_bro})
+
     wait_indef()
   end
 end

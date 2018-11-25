@@ -100,9 +100,10 @@ defmodule MintProcessor.MintGenServer do
 
     txids = get_txids_from_transactions(block.transactions)
     merkle = calculate_merkle(txids)
+    #  IO.inspect(prev_block_list)
 
     prev_block =
-      if(prev_block_list == nil) do
+      if(prev_block_list == nil || prev_block_list == []) do
         [1]
       else
         prev_block_list
@@ -119,6 +120,14 @@ defmodule MintProcessor.MintGenServer do
     ) do
       :valid
     else
+      IO.puts(
+        "invalid block mint!! because #{invalid_txns === []} and #{
+          merkle === block.block_header.merkle_root
+        } and #{prev_block != []} and #{block_integrity}"
+      )
+
+      IO.inspect(prev_block_list)
+
       :invalid
     end
   end
@@ -248,9 +257,20 @@ defmodule MintProcessor.MintGenServer do
   end
 
   defp add_block_to_chain(chain, block, tx_map, unused_map, unverified_map) do
+    #    IO.puts("bn #{block.block_number}, cn #{chain.latest_block_number}")
+
     cond do
       block.block_number < 6 ->
-        {chain, tx_map, unused_map, unverified_map}
+        updated_map = chain.block_map |> Map.update(block.block_number, [block], &[block | &1])
+
+        chain =
+          chain
+          |> Map.put(:block_map, updated_map)
+          |> Map.put(:latest_block_number, block.block_number)
+
+        new_unused_map = lock_transactions(tl(block.transactions), unused_map)
+
+        {chain, tx_map, new_unused_map, unverified_map}
 
       block.block_number < chain.latest_block_number - 5 ->
         {chain, tx_map, unused_map, unverified_map}
@@ -258,7 +278,10 @@ defmodule MintProcessor.MintGenServer do
       block.block_number <= chain.latest_block_number ->
         updated_map = chain.block_map |> Map.update(block.block_number, [block], &[block | &1])
         chain = chain |> Map.put(:block_map, updated_map)
-        {chain, tx_map, unused_map, unverified_map}
+        IO.puts("ashdgkasduashakshfashuk")
+        IO.inspect(Map.get(chain.block_map, block.block_number))
+        new_unused_map = lock_transactions(tl(block.transactions), unused_map)
+        {chain, tx_map, new_unused_map, unverified_map}
 
       block.block_number == chain.latest_block_number + 1 ->
         updated_map = chain.block_map |> Map.update(block.block_number, [block], &[block | &1])
@@ -294,10 +317,14 @@ defmodule MintProcessor.MintGenServer do
           new_tx_map =
             new_tx_map |> Map.put(hd(tenth_block.transactions).txid, hd(tenth_block.transactions))
 
+          #        IO.inspect(new_tx_map)
+          #        IO.inspect(new_unused_map)
+
           {chain, new_tx_map, new_unused_map, new_uv_map}
         end
 
       true ->
+        IO.puts("this should not happen!!!!!!!!!!!!!!!!!!!!!")
         {chain, tx_map, unused_map, unverified_map}
     end
   end
@@ -305,8 +332,9 @@ defmodule MintProcessor.MintGenServer do
   defp already_got_this_block?(block, chain) do
     block_list = chain.block_map |> Map.get(block.block_number, [])
 
-    block_list
-    |> Enum.filter(fn x -> x.block_header.block_hash == block.block_header.block_hash end)
+    block_list =
+      block_list
+      |> Enum.filter(fn x -> x.block_header.block_hash == block.block_header.block_hash end)
 
     block_list != []
   end
@@ -328,6 +356,7 @@ defmodule MintProcessor.MintGenServer do
       transaction = Map.get(tx_map, curr_tx_check.txid, nil)
 
       if transaction == nil do
+        IO.puts("transaction not found")
         false
       else
         cond do
@@ -354,6 +383,7 @@ defmodule MintProcessor.MintGenServer do
         end
       end
     else
+      IO.puts("flag is #{flag}")
       false
     end
   end
@@ -372,6 +402,7 @@ defmodule MintProcessor.MintGenServer do
       transaction = Map.get(tx_map, curr_tx_check.txid, nil)
 
       if transaction == nil do
+        IO.puts("transaction not found")
         false
       else
         cond do
@@ -390,6 +421,7 @@ defmodule MintProcessor.MintGenServer do
         end
       end
     else
+      IO.puts("flllllag is #{flag}")
       false
     end
   end
@@ -424,13 +456,14 @@ defmodule MintProcessor.MintGenServer do
     # TODO: check if you already have that block, if so ignore this message, else do the following and broadcast this message
 
     if(already_got_this_block?(block, mint_state.mint_blockchain)) do
+      IO.puts("already got this block")
       {:noreply, mint_state}
     else
       valid =
         verify_block(
           Map.get(
             mint_state.mint_blockchain.block_map,
-            mint_state.mint_blockchain.latest_block_number
+            block.block_number - 1
           ),
           block
         )
@@ -445,6 +478,8 @@ defmodule MintProcessor.MintGenServer do
             mint_state.unverified_transaction
           )
         else
+          IO.puts("invalid block")
+
           {mint_state.mint_blockchain, mint_state.mint_tx_map, mint_state.unused_transaction,
            mint_state.unverified_transaction}
         end
@@ -456,8 +491,16 @@ defmodule MintProcessor.MintGenServer do
         |> Map.put(:unused_transaction, new_unused)
         |> Map.put(:unverified_transaction, new_unverified)
 
+      #    IO.inspect(mint_state.unused_transaction)
+      #    IO.inspect(mint_state.mint_tx_map)
+
       {:noreply, mint_state}
     end
+  end
+
+  def handle_cast({:print_bro}, state) do
+    state.unused_transaction |> Map.keys() |> Enum.count() |> IO.puts()
+    {:noreply, state}
   end
 
   def handle_call({:verify_unspent_tx, tx_input_list, amount}, _from, mint_state) do

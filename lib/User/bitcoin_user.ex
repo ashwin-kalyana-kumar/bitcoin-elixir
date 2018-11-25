@@ -209,11 +209,11 @@ defmodule User.BitcoinUser do
       #    IO.puts("valid block!!")
       :valid
     else
-      #      IO.puts(
-      #        "invalid block!! because #{invalid_txns === []} and #{
-      #          merkle === block.block_header.merkle_root
-      #        } and #{prev_block != []} and #{block_integrity}"
-      #      )
+      IO.puts(
+        "invalid block user_pid!! because #{invalid_txns === []} and #{
+          merkle === block.block_header.merkle_root
+        } and #{prev_block != []} and #{block_integrity}"
+      )
 
       :invalid
     end
@@ -396,7 +396,7 @@ defmodule User.BitcoinUser do
             end)
 
           state = state |> Map.put(:wallet, new_wallet)
-          IO.puts("#{state.id} sent money to #{id}")
+          #          IO.puts("#{state.id} sent money to #{id}")
 
           GenServer.cast(
             Map.get(state.wallet.pubkey_hashes, id).user_pid,
@@ -419,7 +419,7 @@ defmodule User.BitcoinUser do
       |> Map.update(:unused_transactions, [], &[txid | &1])
       |> Map.update(:balance, 0, &(&1 + amount))
 
-    IO.puts("#{state.id} got money. new balance #{new_wallet.balance}")
+    #    IO.puts("#{state.id} got money. new balance #{new_wallet.balance}")
     state = state |> Map.put(:wallet, new_wallet)
     {:noreply, state}
   end
@@ -580,8 +580,11 @@ defmodule User.BitcoinUser do
         # TODO: update the spawned_pid
         # TODO: Send the input_txns to the mint processor
         GenServer.cast(state.wallet.mint_master_pid, {:block_generated, block})
+        count = Enum.count(block.transactions)
 
-        IO.puts("#{state.id} generated a new block with block number #{block.block_number}")
+        IO.puts(
+          "#{state.id} generated a new block with block number #{block.block_number} with #{count} transactions "
+        )
 
         #        IO.inspect(block.block_header.block_hash)
         new_wallet = state.wallet
@@ -590,7 +593,7 @@ defmodule User.BitcoinUser do
           new_wallet
           |> Map.update(:balance, 50, fn x -> x + 50 end)
           |> Map.update(:unused_transactions, [hd(block.transactions)], fn x ->
-            [hd(block.transactions) | x]
+            List.insert_at(x, Enum.count(x), hd(block.transactions))
           end)
 
         state =

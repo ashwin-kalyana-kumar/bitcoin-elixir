@@ -107,8 +107,19 @@ defmodule User.BlockGenerator do
     coinbase_txn =
       generate_coinbase_transaction(coinbase_amount, private_key, public_key, public_key_hash)
 
+    init_count = Enum.count(transactions)
+
+    auth_count =
+      Enum.count(transactions, fn x -> verify_transaction(mint_guy, x) == :authentic end)
+
     transactions =
       Enum.filter(transactions, fn x -> verify_transaction(mint_guy, x) == :valid end)
+
+    #    IO.puts(
+    #      "out of #{init_count} transactions #{auth_count} were authentic and #{
+    #        Enum.count(transactions)
+    #      } were valid"
+    #    )
 
     input_txns = get_input_transactions(transactions)
     transactions = [coinbase_txn | transactions]
