@@ -207,6 +207,46 @@ defmodule MintProcessor.MintGenServer do
     move_transactions(unverified_map, unused_map, tx_map, rest)
   end
 
+  defp decrement_all_unspent(keys, txns) when keys == [] do
+    txns
+  end
+
+  defp decrement_all_unspent(keys, txns) do
+    [k | rest] = keys
+
+    txns =
+      Map.update!(txns, k, fn x ->
+        if(x != -1) do
+          x - 1
+        else
+          x
+        end
+      end)
+
+    decrement_all_unspent(rest, txns)
+  end
+
+  defp update_unused(input, unused_map) when input == [] do
+    unused_map
+  end
+
+  defp update_unused(input, unused_map) do
+    [first | rest] = input
+    unused_map = unused_map |> Map.put(first.txid, 10)
+    update_unused(rest, unused_map)
+  end
+
+  defp lock_transactions(txns, unused_map) when txns == [] do
+    unused_map
+  end
+
+  defp lock_transactions(txns, unused_map) do
+    [first | rest] = txns
+    input = first.transaction_input
+    unused_map = update_unused(input, unused_map)
+    lock_transactions(rest, unused_map)
+  end
+
   defp add_block_to_chain(chain, block, tx_map, unused_map, unverified_map) do
     cond do
       block.block_number < 6 ->
@@ -231,6 +271,8 @@ defmodule MintProcessor.MintGenServer do
           |> Map.put(:block_map, updated_map)
           |> Map.put(:latest_block_number, block.block_number)
 
+        new_unused_map = lock_transactions(tl(block.transactions), new_unused_map)
+
         tenth_block = chain |> Map.get(:block_map) |> Map.get(block.block_number - 10)
 
         if(tenth_block == nil) do
@@ -245,6 +287,12 @@ defmodule MintProcessor.MintGenServer do
               new_tx_map,
               tl(tenth_block.transactions)
             )
+
+          new_unused_map = new_unused_map |> Map.put(hd(tenth_block.transactions).txid, 90)
+          new_unused_map = decrement_all_unspent(Map.keys(new_unused_map), new_unused_map)
+
+          new_tx_map =
+            new_tx_map |> Map.put(hd(tenth_block.transactions).txid, hd(tenth_block.transactions))
 
           {chain, new_tx_map, new_unused_map, new_uv_map}
         end
@@ -355,7 +403,7 @@ defmodule MintProcessor.MintGenServer do
     transaction = transaction |> Map.put(:signature, nil)
 
     authentic =
-      Crypto.CryptoModule.verify_transaction_sign(transaction.public_key, transaction, sign)
+      Crypto.CryptoModule.verify_transaction_sign(transaction.full_public_key, transaction, sign)
 
     new_mint_state =
       if(authentic) do

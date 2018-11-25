@@ -10,6 +10,7 @@ defmodule User.UserStruct do
     :neighbors,
     :incoming_txns,
     :spawned_process,
-    :block_chain
+    :block_chain,
+    :miner
   ]
 end

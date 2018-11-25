@@ -31,7 +31,7 @@ defmodule User.BitcoinSupervisor do
     spec = %{
       id: 1,
       restart: :temporary,
-      start: {User.BitcoinUser, :start_link, [n, m_pid, neighbour, blockchain]}
+      start: {User.BitcoinUser, :start_link, [n, m_pid, neighbour, blockchain, true]}
     }
 
     {:ok, child} = DynamicSupervisor.start_child(:user_super, spec)
@@ -56,7 +56,7 @@ defmodule User.BitcoinSupervisor do
     spec = %{
       id: n,
       restart: :temporary,
-      start: {User.BitcoinUser, :start_link, [n, m_pid, neighbour, blockchain]}
+      start: {User.BitcoinUser, :start_link, [n, m_pid, neighbour, blockchain, true]}
     }
 
     {:ok, child} = DynamicSupervisor.start_child(:user_super, spec)
@@ -65,7 +65,9 @@ defmodule User.BitcoinSupervisor do
   end
 
   def add_new_node(m_pid) do
-    total_children = DynamicSupervisor.count_children(:user_super)
+    total_children = DynamicSupervisor.which_children(:user_super)
+    total = DynamicSupervisor.count_children(:user_super)
+    total = Map.get(total, :specs)
     {_, node_to_add, _, _} = Enum.random(total_children)
     {_, random_neighbour, _, _} = Enum.random(total_children)
     node_to_add_neighbours = GenServer.call(node_to_add, {:get_neighbours})
@@ -79,9 +81,9 @@ defmodule User.BitcoinSupervisor do
     blockchain = GenServer.call(m_pid, {:get_blockchain})
 
     spec = %{
-      id: total_children + 1,
+      id: total + 1,
       restart: :temporary,
-      start: {User.BitcoinUser, :start_link, [total_children + 1, m_pid, neighbour, blockchain]}
+      start: {User.BitcoinUser, :start_link, [total + 1, m_pid, neighbour, blockchain, false]}
     }
 
     {:ok, child} = DynamicSupervisor.start_child(:user_super, spec)
@@ -91,5 +93,7 @@ defmodule User.BitcoinSupervisor do
       node_to_add_neighbours.right_guy,
       {:update_neighbours_dueto_new_node, {:left_negh, child}}
     )
+
+    child
   end
 end

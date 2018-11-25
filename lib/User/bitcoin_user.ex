@@ -1,7 +1,7 @@
 defmodule User.BitcoinUser do
   use GenServer
 
-  def start_link(id, pid, neighbors, block_chain) do
+  def start_link(id, pid, neighbors, block_chain, miner) do
     {pub_key, priv_key} = Crypto.CryptoModule.get_key_pair()
     public_key_hash = Crypto.CryptoModule.hash_key(pub_key)
 
@@ -11,7 +11,7 @@ defmodule User.BitcoinUser do
       pubkey_hash_script: public_key_hash,
       pubkey_hashes: %{},
       # change to zero
-      balance: 100,
+      balance: 0,
       unused_transactions: [],
       mint_master_pid: pid
     }
@@ -21,7 +21,8 @@ defmodule User.BitcoinUser do
       wallet: wallet,
       neighbors: neighbors,
       incoming_txns: [],
-      block_chain: block_chain
+      block_chain: block_chain,
+      miner: miner
     }
 
     GenServer.start_link(__MODULE__, state)
@@ -208,11 +209,11 @@ defmodule User.BitcoinUser do
       #    IO.puts("valid block!!")
       :valid
     else
-      IO.puts(
-        "invalid block!! because #{invalid_txns === []} and #{
-          merkle === block.block_header.merkle_root
-        } and #{prev_block != []} and #{block_integrity}"
-      )
+      #      IO.puts(
+      #        "invalid block!! because #{invalid_txns === []} and #{
+      #          merkle === block.block_header.merkle_root
+      #        } and #{prev_block != []} and #{block_integrity}"
+      #      )
 
       :invalid
     end
@@ -325,7 +326,7 @@ defmodule User.BitcoinUser do
   def handle_cast({:send_hash, pid}, state) do
     GenServer.cast(
       pid,
-      {:this_is_my_hash, state.wallet.id, state.wallet.pubkey_hash_script, self()}
+      {:this_is_my_hash, state.id, state.wallet.pubkey_hash_script, self()}
     )
 
     {:noreply, state}
@@ -338,6 +339,12 @@ defmodule User.BitcoinUser do
     updated_wallet = state.wallet |> Map.put(:pubkey_hashes, pubkey_hashes)
     state = state |> Map.put(:wallet, updated_wallet)
 
+    {:noreply, state}
+  end
+
+  def handle_cast({:request_bitcoin, pid, amount}, state) do
+    GenServer.cast(pid, {:this_is_my_hash, state.id, state.wallet.pubkey_hash_script, self()})
+    GenServer.cast(pid, {:send_money, state.id, amount})
     {:noreply, state}
   end
 
@@ -359,45 +366,50 @@ defmodule User.BitcoinUser do
 
         hash_struct = Map.get(state.wallet.pubkey_hashes, id)
 
-        transaction =
-          build_transaction(
-            transactions,
-            amount,
-            hash_struct.hash,
-            excess_amount,
-            state.wallet.pubkey_hash_script,
-            state.wallet.public_key,
-            state.wallet.private_key
+        if(hash_struct != nil) do
+          transaction =
+            build_transaction(
+              transactions,
+              amount,
+              hash_struct.pubkey_hash,
+              excess_amount,
+              state.wallet.pubkey_hash_script,
+              state.wallet.public_key,
+              state.wallet.private_key
+            )
+
+          # TODO: remove the transactions which are used
+
+          new_wallet =
+            if(excess_amount > 0) do
+              state.wallet
+              |> Map.update(:unused_transactions, [], &[transaction | &1])
+              |> Map.update(:balance, 0, &(&1 - amount))
+            else
+              state.wallet |> Map.update(:balance, 0, &(&1 - amount))
+            end
+
+          new_wallet =
+            new_wallet
+            |> Map.update(:unused_transactions, [], fn x ->
+              Enum.reject(x, fn item -> item in transactions end)
+            end)
+
+          state = state |> Map.put(:wallet, new_wallet)
+          IO.puts("#{state.id} sent money to #{id}")
+
+          GenServer.cast(
+            Map.get(state.wallet.pubkey_hashes, id).user_pid,
+            {:you_received_bitcoin, transaction.txid, amount}
           )
 
-        # TODO: remove the transactions which are used
-
-        new_wallet =
-          if(excess_amount > 0) do
-            state.wallet
-            |> Map.update(:unused_transactions, [], &[transaction.txid | &1])
-            |> Map.update(:balance, 0, &(&1 - amount))
-          else
-            state.wallet |> Map.update(:balance, 0, &(&1 - amount))
-          end
-
-        new_wallet =
-          new_wallet
-          |> Map.update(:unused_transactions, [], fn x ->
-            Enum.reject(x, fn item -> item in transactions end)
-          end)
-
-        state = state |> Map.put(:wallet, new_wallet)
-
-        GenServer.cast(
-          Map.get(state.wallet.pubkey_hashes, id).user_pid,
-          {:you_received_bitcoin, transaction.txid, amount}
-        )
-
-        broadcast_transaction(transaction, state.neighbors)
-        # TODO: tell mint guy that you made this txn
-        GenServer.cast(state.wallet.mint_master_pid, {:tx_happened, transaction})
-        {:noreply, state}
+          broadcast_transaction(transaction, state.neighbors)
+          # TODO: tell mint guy that you made this txn
+          GenServer.cast(state.wallet.mint_master_pid, {:tx_happened, transaction})
+          {:noreply, state}
+        else
+          {:noreply, state}
+        end
     end
   end
 
@@ -407,6 +419,7 @@ defmodule User.BitcoinUser do
       |> Map.update(:unused_transactions, [], &[txid | &1])
       |> Map.update(:balance, 0, &(&1 + amount))
 
+    IO.puts("#{state.id} got money. new balance #{new_wallet.balance}")
     state = state |> Map.put(:wallet, new_wallet)
     {:noreply, state}
   end
@@ -477,7 +490,7 @@ defmodule User.BitcoinUser do
           state.wallet.public_key,
           state.wallet.private_key,
           state.wallet.pubkey_hash_script,
-          20,
+          18,
           self(),
           state.wallet.mint_master_pid
         ]
@@ -505,33 +518,37 @@ defmodule User.BitcoinUser do
       longest_chain = state.block_chain.latest_block_number
 
       new_state =
-        if(valid == :valid and longest_chain < block.block_number) do
+        if(valid == :valid and longest_chain <= block.block_number) do
           broadcast_block(block, state.neighbors)
           new_block_chain = add_block_to_chain(state.block_chain, block)
           updated_incoming_txns = update_incoming_txns(state.incoming_txns, block)
 
-          if Process.alive?(spawned_pid) do
-            Process.exit(spawned_pid, :kill)
-            #      IO.puts("killing the process state = #{Process.alive?(spawned_pid)}")
-          end
-
           new_pid =
-            spawn(
-              User.BlockGenerator,
-              :generate_next_block,
-              [
-                block.block_number + 1,
-                state.incoming_txns,
-                50,
-                block.block_header.block_hash,
-                state.wallet.public_key,
-                state.wallet.private_key,
-                state.wallet.pubkey_hash_script,
-                20,
-                self(),
-                state.wallet.mint_master_pid
-              ]
-            )
+            if(state.miner) do
+              if Process.alive?(spawned_pid) do
+                Process.exit(spawned_pid, :kill)
+                #      IO.puts("killing the process state = #{Process.alive?(spawned_pid)}")
+              end
+
+              spawn(
+                User.BlockGenerator,
+                :generate_next_block,
+                [
+                  block.block_number + 1,
+                  state.incoming_txns,
+                  50,
+                  block.block_header.block_hash,
+                  state.wallet.public_key,
+                  state.wallet.private_key,
+                  state.wallet.pubkey_hash_script,
+                  18,
+                  self(),
+                  state.wallet.mint_master_pid
+                ]
+              )
+            else
+              nil
+            end
 
           state
           |> Map.put(:block_chain, new_block_chain)
@@ -554,7 +571,7 @@ defmodule User.BitcoinUser do
     longest_chain = state.block_chain.latest_block_number
 
     {new_state, new_block_number} =
-      if(longest_chain < block.block_number) do
+      if(longest_chain <= block.block_number) do
         broadcast_block(block, state.neighbors)
         new_chain = add_block_to_chain(state.block_chain, block)
         updated_txns = update_incoming_txns(state.incoming_txns, block)
@@ -564,16 +581,23 @@ defmodule User.BitcoinUser do
         # TODO: Send the input_txns to the mint processor
         GenServer.cast(state.wallet.mint_master_pid, {:block_generated, block})
 
-        IO.puts(
-          "#{state.id} generated a new block with block number #{block.block_number} and the hash is"
-        )
+        IO.puts("#{state.id} generated a new block with block number #{block.block_number}")
 
-        IO.inspect(block.block_header.block_hash)
+        #        IO.inspect(block.block_header.block_hash)
+        new_wallet = state.wallet
+
+        new_wallet =
+          new_wallet
+          |> Map.update(:balance, 50, fn x -> x + 50 end)
+          |> Map.update(:unused_transactions, [hd(block.transactions)], fn x ->
+            [hd(block.transactions) | x]
+          end)
 
         state =
           state
           |> Map.put(:block_chain, new_chain)
           |> Map.put(:incoming_txns, updated_txns)
+          |> Map.put(:wallet, new_wallet)
 
         {state, block.block_number + 1}
       else
@@ -592,7 +616,7 @@ defmodule User.BitcoinUser do
           new_state.wallet.public_key,
           new_state.wallet.private_key,
           new_state.wallet.pubkey_hash_script,
-          20,
+          18,
           self(),
           new_state.wallet.mint_master_pid
         ]

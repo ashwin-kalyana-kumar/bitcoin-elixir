@@ -74,7 +74,7 @@ defmodule User.BlockGenerator do
     transaction = transaction |> Map.put(:signature, nil)
 
     authentic =
-      Crypto.CryptoModule.verify_transaction_sign(transaction.public_key, transaction, sign)
+      Crypto.CryptoModule.verify_transaction_sign(transaction.full_public_key, transaction, sign)
 
     cond do
       unspent and authentic -> :valid
