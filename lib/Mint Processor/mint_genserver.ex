@@ -6,10 +6,14 @@ defmodule MintProcessor.MintGenServer do
     us_tx = %{}
     tx_map = %{}
 
+    mint_state = %MintProcessor.Structure{
+      unverified_transaction: uv_tx,
+      unused_transaction: us_tx,
+      mint_tx_map: tx_map,
+      mint_blockchain: %BlockChain.Chain{latest_block_number: 0, block_map: %{}}
+    }
 
-    mint_state = %MintProcessor.Structure{unverified_transaction: uv_tx, unused_transaction: us_tx, mint_tx_map: tx_map}
-    GenServer.start_link(__MODULE__,mint_state)
-
+    GenServer.start_link(__MODULE__, mint_state)
   end
 
   def init(mint_state) do
@@ -26,7 +30,6 @@ defmodule MintProcessor.MintGenServer do
     [head | tail] = tx_list_remove
     update_uvtx_used_tx(head, tail, update_uv_tx)
   end
-
 
   ####################################################################
 
@@ -99,8 +102,14 @@ defmodule MintProcessor.MintGenServer do
     merkle = calculate_merkle(txids)
 
     prev_block =
-      prev_block_list
-      |> Enum.filter(fn x -> x.header.block_hash === block.header.previous_block_hash end)
+      if(prev_block_list == nil) do
+        [1]
+      else
+        prev_block_list
+        |> Enum.filter(fn x ->
+          x.block_header.block_hash === block.block_header.previous_block_hash
+        end)
+      end
 
     block_integrity = check_block_hash(block)
 
@@ -129,33 +138,33 @@ defmodule MintProcessor.MintGenServer do
     [latest_block | _rest] = chain_map |> Map.get(last_block_number)
     prev_hash = latest_block.block_header.previous_block_hash
 
-    prev1_block =
+    [prev1_block] =
       chain_map
       |> Map.get(last_block_number - 1)
       |> Enum.filter(fn x -> x.block_header.block_hash === prev_hash end)
 
-    prev2_block =
+    [prev2_block] =
       chain_map
       |> Map.get(last_block_number - 2)
       |> Enum.filter(fn x ->
         x.block_header.block_hash === prev1_block.block_header.previous_block_hash
       end)
 
-    prev3_block =
+    [prev3_block] =
       chain_map
       |> Map.get(last_block_number - 3)
       |> Enum.filter(fn x ->
         x.block_header.block_hash === prev2_block.block_header.previous_block_hash
       end)
 
-    prev4_block =
+    [prev4_block] =
       chain_map
       |> Map.get(last_block_number - 4)
       |> Enum.filter(fn x ->
         x.block_header.block_hash === prev3_block.block_header.previous_block_hash
       end)
 
-    prev5_block =
+    [prev5_block] =
       chain_map
       |> Map.get(last_block_number - 5)
       |> Enum.filter(fn x ->
@@ -200,16 +209,19 @@ defmodule MintProcessor.MintGenServer do
 
   defp add_block_to_chain(chain, block, tx_map, unused_map, unverified_map) do
     cond do
+      block.block_number < 6 ->
+        {chain, tx_map, unused_map, unverified_map}
+
       block.block_number < chain.latest_block_number - 5 ->
         {chain, tx_map, unused_map, unverified_map}
 
       block.block_number <= chain.latest_block_number ->
-        updated_map = chain.block_map |> Map.update(block.number, [block], &[block, &1])
+        updated_map = chain.block_map |> Map.update(block.block_number, [block], &[block | &1])
         chain = chain |> Map.put(:block_map, updated_map)
         {chain, tx_map, unused_map, unverified_map}
 
       block.block_number == chain.latest_block_number + 1 ->
-        updated_map = chain.block_map |> Map.update(block.number, [block], &[block, &1])
+        updated_map = chain.block_map |> Map.update(block.block_number, [block], &[block | &1])
 
         {updated_map, new_tx_map, new_unused_map} =
           delete_unwanted_branches(updated_map, block.block_number, tx_map, unused_map)
@@ -253,18 +265,27 @@ defmodule MintProcessor.MintGenServer do
 
   ############################################################################
 
-
-  def verify_integrity_of_tx(curr_tx_check, other_tx_list, curr_amount, total_amount, tx_map, unused_tx_list) when other_tx_list == [] do
-    flag = Map.get(unused_tx_list,curr_tx_check.txid)
+  def verify_integrity_of_tx(
+        curr_tx_check,
+        other_tx_list,
+        curr_amount,
+        total_amount,
+        tx_map,
+        unused_tx_list
+      )
+      when other_tx_list == [] do
+    flag = Map.get(unused_tx_list, curr_tx_check.txid)
 
     if flag == -1 do
       transaction = Map.get(tx_map, curr_tx_check.txid, nil)
+
       if transaction == nil do
         false
       else
         cond do
           transaction.transaction_output.pub_key_script == curr_tx_check.public_key_hash ->
             curr_amount = curr_amount + transaction.transaction_output.amount
+
             if curr_amount >= total_amount do
               true
             else
@@ -273,6 +294,7 @@ defmodule MintProcessor.MintGenServer do
 
           transaction.transaction_output.sender_pub_key_script == curr_tx_check.public_key_hash ->
             curr_amount = curr_amount + transaction.transaction_output.got_back_amount
+
             if curr_amount >= total_amount do
               true
             else
@@ -286,14 +308,21 @@ defmodule MintProcessor.MintGenServer do
     else
       false
     end
-
   end
 
-  def verify_integrity_of_tx(curr_tx_check, other_tx_list, curr_amount, total_amount, tx_map, unused_tx_list) do
-    flag = Map.get(unused_tx_list,curr_tx_check.txid)
+  def verify_integrity_of_tx(
+        curr_tx_check,
+        other_tx_list,
+        curr_amount,
+        total_amount,
+        tx_map,
+        unused_tx_list
+      ) do
+    flag = Map.get(unused_tx_list, curr_tx_check.txid)
 
     if flag == -1 do
       transaction = Map.get(tx_map, curr_tx_check.txid, nil)
+
       if transaction == nil do
         false
       else
@@ -315,15 +344,13 @@ defmodule MintProcessor.MintGenServer do
     else
       false
     end
-
   end
 
-  def handle_cast({:tx_happened, transaction},mint_state) do
-
+  def handle_cast({:tx_happened, transaction}, mint_state) do
     old_uv_tx = mint_state.unverified_transaction
     old_tx_map = mint_state.mint_tx_map
 
-    #verify Transaction before adding
+    # verify Transaction before adding
     sign = transaction.signature
     transaction = transaction |> Map.put(:signature, nil)
 
@@ -331,20 +358,18 @@ defmodule MintProcessor.MintGenServer do
       Crypto.CryptoModule.verify_transaction_sign(transaction.public_key, transaction, sign)
 
     new_mint_state =
-    if(authentic) do
-      new_uv_tx = Map.put(old_uv_tx, transaction.txid, -1)
-      new_tx_map = Map.put(old_tx_map, transaction.txid, transaction)
+      if(authentic) do
+        new_uv_tx = Map.put(old_uv_tx, transaction.txid, -1)
+        new_tx_map = Map.put(old_tx_map, transaction.txid, transaction)
 
+        mint_state
+        |> Map.update!(:unverified_transaction, fn _x -> new_uv_tx end)
+        |> Map.update!(:mint_tx_map, fn _x -> new_tx_map end)
+      else
+        mint_state
+      end
 
-      mint_state
-      |> Map.update!(:unverified_transaction, fn _x -> new_uv_tx end)
-      |> Map.update!(:mint_tx_map, fn _x -> new_tx_map end)
-    else
-      mint_state
-    end
-
-    {:noreply,new_mint_state}
-
+    {:noreply, new_mint_state}
   end
 
   def handle_cast({:block_generated, block}, mint_state) do
@@ -387,8 +412,7 @@ defmodule MintProcessor.MintGenServer do
     end
   end
 
-
-  def handle_call({:verify_unspent_tx,tx_input_list, amount},_from,mint_state) do
+  def handle_call({:verify_unspent_tx, tx_input_list, amount}, _from, mint_state) do
     [head | tail] = tx_input_list
     curr_amount = 0
     tx_map = mint_state.mint_tx_map
@@ -396,7 +420,7 @@ defmodule MintProcessor.MintGenServer do
 
     flag = verify_integrity_of_tx(head, tail, curr_amount, amount, tx_map, unused_tx_list)
 
-    {:reply,flag,mint_state}
+    {:reply, flag, mint_state}
   end
 
   def handle_call({:get_blockchain}, _from, mint_state) do

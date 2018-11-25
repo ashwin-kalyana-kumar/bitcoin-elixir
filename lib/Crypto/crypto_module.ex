@@ -44,18 +44,30 @@ defmodule Crypto.CryptoModule do
       get_output_txn_bitstr(transaction.transaction_output)
   end
 
+  defp get_transaction_binaries_of_block([first | rest]) when rest == [] do
+    get_transaction_binary(first)
+  end
+
+  defp get_transaction_binaries_of_block([first | rest]) do
+    get_transaction_binary(first) <> get_transaction_binaries_of_block(rest)
+  end
+
   defp get_block_binary(block) do
     :binary.encode_unsigned(block.block_number) <>
-      block.block_header.previous_block_hash <>
+      if(block.block_header.previous_block_hash == nil) do
+        ""
+      else
+        block.block_header.previous_block_hash
+      end <>
       :binary.encode_unsigned(block.block_header.nonce) <>
       block.block_header.merkle_root <>
       :binary.encode_unsigned(block.block_header.timestamp) <>
-      Enum.reduce(block.transactions, fn x, acc -> get_transaction_binary(x) <> acc end)
+      get_transaction_binaries_of_block(block.transactions)
   end
 
   def get_key_pair() do
     # {public_key, private_key}
-    :crypto.generate_key(:ecdh, :brainpoolP160r1)
+    :crypto.generate_key(:ecdh, :brainpoolP512r1)
   end
 
   def hash_transaction(transaction) do
@@ -76,24 +88,38 @@ defmodule Crypto.CryptoModule do
 
   defp hash(data) do
     # digest
-    :crypto.hash(:sha256, data)
+    :crypto.hash(:sha512, data)
   end
 
   def sign_transaction(key, transaction) do
-    digital_sign(key, transaction.txid <> get_transaction_binary(transaction))
+    message = transaction.txid <> get_transaction_binary(transaction)
+    #    IO.puts("signed message")
+    #    IO.inspect(message, limit: :infinity)
+    digital_sign(key, message)
   end
 
   defp digital_sign(key, message) do
     # signature
-    :crypto.sign(:ecdsa, :sha256, message, [key, :brainpoolP160r1])
+    signature = :crypto.sign(:ecdsa, :sha512, message, [key, :brainpoolP512r1])
+    #  IO.puts("signing private")
+    #  IO.inspect(key, limit: :infinity)
+    signature
   end
 
   def verify_transaction_sign(key, transaction, sign) do
-    verify_sign(key, transaction.txid <> get_transaction_binary(transaction), sign)
+    message = transaction.txid <> get_transaction_binary(transaction)
+    #    IO.puts("verifying message")
+    #    IO.inspect(message, limit: :infinity)
+    #    IO.puts("verifying   public!")
+    #    IO.inspect(key, limit: :infinity)
+
+    verify_sign(key, message, sign)
   end
 
   defp verify_sign(key, message, sign) do
     # result
-    :crypto.verify(:ecdsa, :sha256, message, sign, [key, :brainpoolP160r1])
+    result = :crypto.verify(:ecdsa, :sha512, message, sign, [key, :brainpoolP512r1])
+    ##    IO.inspect(result)
+    result
   end
 end

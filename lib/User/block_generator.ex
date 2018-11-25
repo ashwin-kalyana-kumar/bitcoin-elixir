@@ -50,6 +50,7 @@ defmodule User.BlockGenerator do
   end
 
   def generate_hash(block, nonce, condition_number) do
+    #    IO.puts("Trying with number #{nonce}")
     block = block |> Map.update!(:block_header, fn x -> x |> Map.put(:nonce, nonce) end)
     hash = Crypto.CryptoModule.hash_block(block)
     <<val::size(condition_number), _rest::bitstring>> = hash
@@ -128,5 +129,6 @@ defmodule User.BlockGenerator do
 
     block = generate_hash(block, :rand.uniform(1_000_000_000), condition_number)
     GenServer.cast(success_pid, {:you_found_a_new_block, block, input_txns})
+    block
   end
 end

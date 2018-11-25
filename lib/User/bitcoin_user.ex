@@ -121,8 +121,13 @@ defmodule User.BitcoinUser do
       Crypto.CryptoModule.verify_transaction_sign(transaction.full_public_key, transaction, sign)
 
     cond do
-      authentic -> :authentic
-      true -> :invalid
+      authentic ->
+        #        IO.puts("Authentic Transaction")
+        :authentic
+
+      true ->
+        #        IO.puts("Invalid_transaction")
+        :invalid
     end
   end
 
@@ -173,7 +178,7 @@ defmodule User.BitcoinUser do
     [txn.txid | get_txids_from_transactions(rest)]
   end
 
-  defp verify_block(prev_block_list, block) do
+  def verify_block(prev_block_list, block) do
     invalid_txns =
       block.transactions
       |> Enum.filter(fn txn -> check_authenticity_of_txn(txn) === :invalid end)
@@ -182,59 +187,79 @@ defmodule User.BitcoinUser do
     merkle = calculate_merkle(txids)
 
     prev_block =
-      prev_block_list
-      |> Enum.filter(fn x -> x.header.block_hash === block.header.previous_block_hash end)
+      if(prev_block_list == nil || prev_block_list == []) do
+        [1]
+      else
+        # IO.inspect(prev_block_list)
+
+        prev_block_list
+        |> Enum.filter(fn x ->
+          x.block_header.block_hash === block.block_header.previous_block_hash
+        end)
+      end
 
     block_integrity = check_block_hash(block)
+    #    IO.inspect(prev_block_list)
 
     if(
       invalid_txns === [] and merkle === block.block_header.merkle_root and prev_block != [] and
         block_integrity
     ) do
+      #    IO.puts("valid block!!")
       :valid
     else
+      IO.puts(
+        "invalid block!! because #{invalid_txns === []} and #{
+          merkle === block.block_header.merkle_root
+        } and #{prev_block != []} and #{block_integrity}"
+      )
+
       :invalid
     end
   end
 
   defp delete_unwanted_branches(chain_map, last_block_number) do
-    [latest_block | _rest] = chain_map |> Map.get(last_block_number)
-    prev_hash = latest_block.block_header.previous_block_hash
-
-    prev1_block =
+    if(last_block_number < 6) do
       chain_map
-      |> Map.get(last_block_number - 1)
-      |> Enum.filter(fn x -> x.block_header.block_hash === prev_hash end)
+    else
+      [latest_block | _rest] = chain_map |> Map.get(last_block_number)
+      prev_hash = latest_block.block_header.previous_block_hash
 
-    prev2_block =
-      chain_map
-      |> Map.get(last_block_number - 2)
-      |> Enum.filter(fn x ->
-        x.block_header.block_hash === prev1_block.block_header.previous_block_hash
-      end)
+      [prev1_block] =
+        chain_map
+        |> Map.get(last_block_number - 1, [])
+        |> Enum.filter(fn x -> x.block_header.block_hash === prev_hash end)
 
-    prev3_block =
-      chain_map
-      |> Map.get(last_block_number - 3)
-      |> Enum.filter(fn x ->
-        x.block_header.block_hash === prev2_block.block_header.previous_block_hash
-      end)
+      [prev2_block] =
+        chain_map
+        |> Map.get(last_block_number - 2, [])
+        |> Enum.filter(fn x ->
+          x.block_header.block_hash === prev1_block.block_header.previous_block_hash
+        end)
 
-    prev4_block =
-      chain_map
-      |> Map.get(last_block_number - 4)
-      |> Enum.filter(fn x ->
-        x.block_header.block_hash === prev3_block.block_header.previous_block_hash
-      end)
+      [prev3_block] =
+        chain_map
+        |> Map.get(last_block_number - 3, [])
+        |> Enum.filter(fn x ->
+          x.block_header.block_hash === prev2_block.block_header.previous_block_hash
+        end)
 
-    prev5_block =
-      chain_map
-      |> Map.get(last_block_number - 5)
-      |> Enum.filter(fn x ->
-        x.block_header.block_hash === prev4_block.block_header.previous_block_hash
-      end)
+      [prev4_block] =
+        chain_map
+        |> Map.get(last_block_number - 4, [])
+        |> Enum.filter(fn x ->
+          x.block_header.block_hash === prev3_block.block_header.previous_block_hash
+        end)
 
-    chain_map |> Map.put(last_block_number - 5, [prev5_block])
+      [prev5_block] =
+        chain_map
+        |> Map.get(last_block_number - 5, [])
+        |> Enum.filter(fn x ->
+          x.block_header.block_hash === prev4_block.block_header.previous_block_hash
+        end)
+
+      chain_map |> Map.put(last_block_number - 5, [prev5_block])
+    end
   end
 
   defp add_block_to_chain(chain, block) do
@@ -243,16 +268,20 @@ defmodule User.BitcoinUser do
         chain
 
       block.block_number <= chain.latest_block_number ->
-        updated_map = chain.block_map |> Map.update(block.number, [block], &[block, &1])
+        updated_map = chain.block_map |> Map.update(block.block_number, [block], &[block | &1])
+
         chain |> Map.put(:block_map, updated_map)
 
       block.block_number == chain.latest_block_number + 1 ->
-        updated_map = chain.block_map |> Map.update(block.number, [block], &[block, &1])
+        updated_map = chain.block_map |> Map.update(block.block_number, [block], &[block | &1])
         updated_map = delete_unwanted_branches(updated_map, block.block_number)
 
+        chain =
+          chain
+          |> Map.put(:block_map, updated_map)
+          |> Map.put(:latest_block_number, block.block_number)
+
         chain
-        |> Map.put(:block_map, updated_map)
-        |> Map.put(:latest_block_number, block.block_number)
 
       true ->
         chain
@@ -282,10 +311,15 @@ defmodule User.BitcoinUser do
   defp already_got_this_block?(block, chain) do
     block_list = chain.block_map |> Map.get(block.block_number, [])
 
-    block_list
-    |> Enum.filter(fn x -> x.block_header.block_hash == block.block_header.block_hash end)
+    unique_list =
+      block_list
+      |> Enum.filter(fn x -> x.block_header.block_hash == block.block_header.block_hash end)
 
-    block_list != []
+    if(unique_list != []) do
+      true
+    else
+      false
+    end
   end
 
   def handle_cast({:send_hash, pid}, state) do
@@ -387,10 +421,10 @@ defmodule User.BitcoinUser do
   end
 
   def handle_cast({:update_neighbors, node_map}, state) do
-    neighbours = state.neighbours
-    {_, left_n} = Map.fetch!(node_map, neighbours.left_guy)
-    {_, right_n} = Map.fetch!(node_map, neighbours.right_guy)
-    {_, random_n} = Map.fetch!(node_map, neighbours.random_guy)
+    neighbours = state.neighbors
+    left_n = Map.fetch!(node_map, neighbours.left_guy)
+    right_n = Map.fetch!(node_map, neighbours.right_guy)
+    random_n = Map.fetch!(node_map, neighbours.random_guy)
 
     update_neighbours = %User.NeighborStruct{
       left_guy: left_n,
@@ -419,102 +453,156 @@ defmodule User.BitcoinUser do
     {:noreply, state}
   end
 
+  def handle_cast({:start_mining}, state) do
+    previous_block_hash =
+      if(state.block_chain.latest_block_number == 0) do
+        nil
+      else
+        state.block_chain.block_map
+        |> Map.get(state.block_chain.latest_block_number)
+        |> hd
+        |> Map.get(:block_header)
+        |> Map.get(:block_hash)
+      end
+
+    new_pid =
+      spawn(
+        User.BlockGenerator,
+        :generate_next_block,
+        [
+          state.block_chain.latest_block_number + 1,
+          state.incoming_txns,
+          50,
+          previous_block_hash,
+          state.wallet.public_key,
+          state.wallet.private_key,
+          state.wallet.pubkey_hash_script,
+          20,
+          self(),
+          state.wallet.mint_master_pid
+        ]
+      )
+
+    state = state |> Map.put(:spawned_process, new_pid)
+
+    {:noreply, state}
+  end
+
   def handle_cast({:new_block, block}, state) do
     # TODO: check if you already have that block, if so ignore this message, else do the following and broadcast this message
 
     if(already_got_this_block?(block, state.block_chain)) do
       {:noreply, state}
     else
-      broadcast_block(block, state.neighbors)
       spawned_pid = state.spawned_process
-
-      if Process.alive?(spawned_pid) do
-        Process.exit(spawned_pid, :kill)
-      end
 
       valid =
         verify_block(
-          Map.get(state.block_chain.block_map, state.block_chain.latest_block_number),
+          Map.get(state.block_chain.block_map, block.block_number - 1),
           block
         )
 
-      {new_block_chain, updated_incoming_txns} =
-        if(valid == :valid) do
-          new_chain = add_block_to_chain(state.block_chain, block)
-          updated_txns = update_incoming_txns(state.incoming_txns, block)
-          {new_chain, updated_txns}
-        else
-          {state.block_chain, state.incoming_txns}
-        end
+      longest_chain = state.block_chain.latest_block_number
 
-      new_pid =
-        Process.spawn(
-          User.BlockGenerator,
-          :generate_next_block,
-          [
-            block.block_number + 1,
-            state.incoming_txns,
-            50,
-            block.block_header.block_hash,
-            state.wallet.public_key,
-            state.wallet.private_key,
-            state.wallet.pubkey_hash_script,
-            5,
-            self(),
-            state.wallet.mint_master_pid
-          ],
-          nil
-        )
+      new_state =
+        if(valid == :valid and longest_chain < block.block_number) do
+          broadcast_block(block, state.neighbors)
+          new_block_chain = add_block_to_chain(state.block_chain, block)
+          updated_incoming_txns = update_incoming_txns(state.incoming_txns, block)
+
+          if Process.alive?(spawned_pid) do
+            Process.exit(spawned_pid, :kill)
+            #      IO.puts("killing the process state = #{Process.alive?(spawned_pid)}")
+          end
+
+          new_pid =
+            spawn(
+              User.BlockGenerator,
+              :generate_next_block,
+              [
+                block.block_number + 1,
+                state.incoming_txns,
+                50,
+                block.block_header.block_hash,
+                state.wallet.public_key,
+                state.wallet.private_key,
+                state.wallet.pubkey_hash_script,
+                20,
+                self(),
+                state.wallet.mint_master_pid
+              ]
+            )
+
+          state
+          |> Map.put(:block_chain, new_block_chain)
+          |> Map.put(:incoming_txns, updated_incoming_txns)
+          |> Map.put(:spawned_process, new_pid)
+        else
+          state
+        end
 
       # TODO: Spawn a process to calculate the block
       # TODO: update the spawned_pid
+      #      IO.puts("this is #{state.id}\'s chain")
+      #      IO.inspect(new_block_chain)
 
-      state =
-        state
-        |> Map.put(:block_chain, new_block_chain)
-        |> Map.put(:incoming_txns, updated_incoming_txns)
-        |> Map.put(:spawned_process, new_pid)
-
-      {:noreply, state}
+      {:noreply, new_state}
     end
   end
 
-  def handle_cast({:you_found_a_new_block, block, input_txns}, state) do
-    broadcast_block(block, state.neighbors)
-    new_chain = add_block_to_chain(state.block_chain, block)
-    updated_txns = update_incoming_txns(state.incoming_txns, block)
+  def handle_cast({:you_found_a_new_block, block, _input_txns}, state) do
+    longest_chain = state.block_chain.latest_block_number
 
-    # TODO: Spawn a process to calculate the block
-    # TODO: update the spawned_pid
-    # TODO: Send the input_txns to the mint processor
-    GenServer.cast(state.wallet.mint_master_pid, {:block_generated, input_txns, block})
+    {new_state, new_block_number} =
+      if(longest_chain < block.block_number) do
+        broadcast_block(block, state.neighbors)
+        new_chain = add_block_to_chain(state.block_chain, block)
+        updated_txns = update_incoming_txns(state.incoming_txns, block)
+
+        # TODO: Spawn a process to calculate the block
+        # TODO: update the spawned_pid
+        # TODO: Send the input_txns to the mint processor
+        GenServer.cast(state.wallet.mint_master_pid, {:block_generated, block})
+
+        IO.puts(
+          "#{state.id} generated a new block with block number #{block.block_number} and the hash is"
+        )
+
+        IO.inspect(block.block_header.block_hash)
+
+        state =
+          state
+          |> Map.put(:block_chain, new_chain)
+          |> Map.put(:incoming_txns, updated_txns)
+
+        {state, block.block_number + 1}
+      else
+        {state, longest_chain + 1}
+      end
 
     new_pid =
-      Process.spawn(
+      spawn(
         User.BlockGenerator,
         :generate_next_block,
         [
-          block.block_number + 1,
-          state.incoming_txns,
+          new_block_number,
+          new_state.incoming_txns,
           50,
           block.block_header.block_hash,
-          state.wallet.public_key,
-          state.wallet.private_key,
-          state.wallet.pubkey_hash_script,
-          5,
+          new_state.wallet.public_key,
+          new_state.wallet.private_key,
+          new_state.wallet.pubkey_hash_script,
+          20,
           self(),
-          state.wallet.mint_master_pid
-        ],
-        nil
+          new_state.wallet.mint_master_pid
+        ]
       )
 
-    state =
-      state
-      |> Map.put(:block_chain, new_chain)
-      |> Map.put(:incoming_txns, updated_txns)
+    new_state =
+      new_state
       |> Map.put(:spawned_process, new_pid)
 
-    {:noreply, state}
+    {:noreply, new_state}
   end
 
   def handle_call({:get_neighbours}, _from, state) do

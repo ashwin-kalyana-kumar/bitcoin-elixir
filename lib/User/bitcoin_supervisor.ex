@@ -1,8 +1,12 @@
 defmodule User.BitcoinSupervisor do
   use DynamicSupervisor
 
-  def start_link() do
-    DynamicSupervisor.start_link(strategy: :one_for_one, name: :user_super)
+  def start_link(arg) do
+    DynamicSupervisor.start_link(__MODULE__, arg, name: :user_super)
+  end
+
+  def init(_arg) do
+    DynamicSupervisor.init(strategy: :one_for_one)
   end
 
   def update_intial_neighbours(node_map) do
@@ -39,7 +43,7 @@ defmodule User.BitcoinSupervisor do
     blockchain = GenServer.call(m_pid, {:get_blockchain})
 
     neighbour =
-      if n == 100 do
+      if n == total_node do
         %User.NeighborStruct{left_guy: n - 1, right_guy: 1, random_guy: :rand.uniform(total_node)}
       else
         %User.NeighborStruct{
