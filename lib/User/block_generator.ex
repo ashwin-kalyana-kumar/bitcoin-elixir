@@ -40,7 +40,8 @@ defmodule User.BlockGenerator do
       transaction_output: %Transaction.TransactionOutput{
         amount: amount,
         pub_key_script: public_key_hash
-      }
+      },
+      unique_id: :rand.uniform(1_000_000_000_000)
     }
 
     txid = Crypto.CryptoModule.hash_transaction(coinbase_txn)
@@ -102,7 +103,8 @@ defmodule User.BlockGenerator do
         public_key_hash,
         condition_number,
         success_pid,
-        mint_guy
+        mint_guy,
+        m_pid
       ) do
     coinbase_txn =
       generate_coinbase_transaction(coinbase_amount, private_key, public_key, public_key_hash)
@@ -115,10 +117,10 @@ defmodule User.BlockGenerator do
     transactions =
       Enum.filter(transactions, fn x -> verify_transaction(mint_guy, x) == :valid end)
 
-    #    IO.puts(
-    #      "out of #{init_count} transactions #{auth_count} were authentic and #{
-    #        Enum.count(transactions)
-    #      } were valid"
+#        IO.puts(
+ #         "out of #{init_count} transactions #{auth_count} were authentic and #{
+  #          Enum.count(transactions)
+   #       } were valid"
     #    )
 
     input_txns = get_input_transactions(transactions)
@@ -139,7 +141,7 @@ defmodule User.BlockGenerator do
     }
 
     block = generate_hash(block, :rand.uniform(1_000_000_000), condition_number)
-    GenServer.cast(success_pid, {:you_found_a_new_block, block, input_txns})
+    GenServer.cast(success_pid, {:you_found_a_new_block, block, input_txns, m_pid})
     block
   end
 end

@@ -12,6 +12,7 @@ defmodule Transaction.Transaction do
   """
   defstruct [
     :txid,
+    :unique_id,
     :full_public_key,
     :transaction_output,
     :transaction_input,
