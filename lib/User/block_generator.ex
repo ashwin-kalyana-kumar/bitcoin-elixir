@@ -66,10 +66,15 @@ defmodule User.BlockGenerator do
   defp verify_transaction(mint_pid, transaction) do
     # unspent = check_unspent(transaction.transaction_input, mint_pid)
     unspent =
-      GenServer.call(
-        mint_pid,
-        {:verify_unspent_tx, transaction.transaction_input, transaction.transaction_output.amount}
-      )
+      if(mint_pid != nil) do
+        GenServer.call(
+          mint_pid,
+          {:verify_unspent_tx, transaction.transaction_input,
+           transaction.transaction_output.amount}
+        )
+      else
+        true
+      end
 
     sign = transaction.signature
     transaction = transaction |> Map.put(:signature, nil)
@@ -117,10 +122,10 @@ defmodule User.BlockGenerator do
     transactions =
       Enum.filter(transactions, fn x -> verify_transaction(mint_guy, x) == :valid end)
 
-#        IO.puts(
- #         "out of #{init_count} transactions #{auth_count} were authentic and #{
-  #          Enum.count(transactions)
-   #       } were valid"
+    #        IO.puts(
+    #         "out of #{init_count} transactions #{auth_count} were authentic and #{
+    #          Enum.count(transactions)
+    #       } were valid"
     #    )
 
     input_txns = get_input_transactions(transactions)

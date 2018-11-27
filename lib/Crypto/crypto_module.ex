@@ -38,8 +38,8 @@ defmodule Crypto.CryptoModule do
   end
 
   defp get_transaction_binary(transaction) do
-     :binary.encode_unsigned(transaction.unique_id) <>
-    transaction.full_public_key <>
+    :binary.encode_unsigned(transaction.unique_id) <>
+      transaction.full_public_key <>
       get_input_txn_bitstr(transaction.transaction_input) <>
       get_output_txn_bitstr(transaction.transaction_output)
   end
@@ -98,12 +98,20 @@ defmodule Crypto.CryptoModule do
     digital_sign(key, message)
   end
 
+  def sign_message(key, message) do
+    digital_sign(key, message)
+  end
+
   defp digital_sign(key, message) do
     # signature
     signature = :crypto.sign(:ecdsa, :sha512, message, [key, :brainpoolP512r1])
     #  IO.puts("signing private")
     #  IO.inspect(key, limit: :infinity)
     signature
+  end
+
+  def verify_message(key, message, sign) do
+    verify_sign(key, message, sign)
   end
 
   def verify_transaction_sign(key, transaction, sign) do
