@@ -38,7 +38,7 @@ defmodule Crypto.CryptoModule do
   end
 
   defp get_transaction_binary(transaction) do
-    # transaction.txid <>
+     :binary.encode_unsigned(transaction.unique_id) <>
     transaction.full_public_key <>
       get_input_txn_bitstr(transaction.transaction_input) <>
       get_output_txn_bitstr(transaction.transaction_output)
