@@ -160,7 +160,7 @@ defmodule User.BitcoinUser do
   defp calculate_merkle([a, b | rest]) do
     cond do
       a === :end ->
-        IO.puts("This is not supposed to happen!")
+       # IO.puts("This is not supposed to happen!")
         0
 
       b === :end ->
@@ -210,11 +210,11 @@ defmodule User.BitcoinUser do
       #    IO.puts("valid block!!")
       :valid
     else
-      IO.puts(
-        "invalid block user_pid!! because #{invalid_txns === []} and #{
-          merkle === block.block_header.merkle_root
-        } and #{prev_block != []} and #{block_integrity}"
-      )
+      # IO.puts(
+      #   "invalid block user_pid!! because #{invalid_txns === []} and #{
+      #     merkle === block.block_header.merkle_root
+      #   } and #{prev_block != []} and #{block_integrity}"
+      # )
 
       :invalid
     end
@@ -277,7 +277,7 @@ defmodule User.BitcoinUser do
           #        IO.inspect( Map.get(chain_map,last_block_number - 4, []))
           #        IO.puts("Block no -5")
           #        IO.inspect( Map.get(chain_map,last_block_number - 5, []))
-          IO.puts("problem in branch deletion.")
+       #   IO.puts("problem in branch deletion.")
           chain_map
       end
     end
@@ -641,11 +641,11 @@ defmodule User.BitcoinUser do
         GenServer.cast(state.wallet.mint_master_pid, {:block_generated, block})
         count = Enum.count(block.transactions)
 
-        IO.puts(
-          "#{state.id} generated a new block with block number #{block.block_number} with #{count} transactions and has #{
-            Enum.count(updated_txns)
-          } transactions left out of #{before_updating}"
-        )
+        # IO.puts(
+        #   "#{state.id} generated a new block with block number #{block.block_number} with #{count} transactions and has #{
+        #     Enum.count(updated_txns)
+        #   } transactions left out of #{before_updating}"
+        # )
 
         #        IO.inspect(block.block_header.block_hash)
         new_wallet = state.wallet

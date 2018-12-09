@@ -71,7 +71,7 @@ defmodule MintProcessor.MintGenServer do
   defp calculate_merkle([a, b | rest]) do
     cond do
       a === :end ->
-        IO.puts("This is not supposed to happen!")
+    #    IO.puts("This is not supposed to happen!")
         0
 
       b === :end ->
@@ -118,13 +118,13 @@ defmodule MintProcessor.MintGenServer do
     ) do
       :valid
     else
-      IO.puts(
-        "invalid block mint!! because #{invalid_txns === []} and #{
-          merkle === block.block_header.merkle_root
-        } and #{prev_block != []} and #{block_integrity}"
-      )
+      # IO.puts(
+      #   "invalid block mint!! because #{invalid_txns === []} and #{
+      #     merkle === block.block_header.merkle_root
+      #   } and #{prev_block != []} and #{block_integrity}"
+      # )
 
-      IO.inspect(prev_block_list)
+   #   IO.inspect(prev_block_list)
 
       :invalid
     end
@@ -276,7 +276,7 @@ defmodule MintProcessor.MintGenServer do
       block.block_number <= chain.latest_block_number ->
         updated_map = chain.block_map |> Map.update(block.block_number, [block], &[block | &1])
         chain = chain |> Map.put(:block_map, updated_map)
-        IO.puts("branching happened")
+   #     IO.puts("branching happened")
         # IO.inspect(Map.get(chain.block_map, block.block_number))
         new_unused_map = lock_transactions(tl(block.transactions), unused_map)
         {chain, tx_map, new_unused_map, unverified_map}
@@ -335,7 +335,7 @@ defmodule MintProcessor.MintGenServer do
         end
 
       true ->
-        IO.puts("this should not happen!!!!!!!!!!!!!!!!!!!!!")
+ #       IO.puts("this should not happen!!!!!!!!!!!!!!!!!!!!!")
         {chain, tx_map, unused_map, unverified_map}
     end
   end
@@ -367,7 +367,7 @@ defmodule MintProcessor.MintGenServer do
       transaction = Map.get(tx_map, curr_tx_check.txid, nil)
 
       if transaction == nil do
-        IO.puts("transaction not found")
+   #     IO.puts("transaction not found")
         false
       else
         cond do
@@ -413,7 +413,7 @@ defmodule MintProcessor.MintGenServer do
       transaction = Map.get(tx_map, curr_tx_check.txid, nil)
 
       if transaction == nil do
-        IO.puts("transaction not found")
+    #    IO.puts("transaction not found")
         false
       else
         cond do
@@ -495,7 +495,7 @@ defmodule MintProcessor.MintGenServer do
             mint_state.unverified_transaction
           )
         else
-          IO.puts("invalid block")
+    #      IO.puts("invalid block")
 
           {mint_state.mint_blockchain, mint_state.mint_tx_map, mint_state.unused_transaction,
            mint_state.unverified_transaction}

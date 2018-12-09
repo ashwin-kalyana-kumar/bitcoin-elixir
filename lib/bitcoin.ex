@@ -3,48 +3,49 @@ defmodule Bitcoin do
   Documentation for Bitcoin.
   """
 
-  defp wait_indef() do
+  def wait_indef() do
     receive do
       :hello -> nil
     after
       200_000 ->
-        IO.puts("starting new guy")
+        {:ok}
     end
   end
-  defp wait_indef2() do
+
+  def wait_indef2() do
     receive do
       :hello -> nil
     after
       10_000 ->
-        IO.puts("starting new guy")
+        {:ok}
     end
   end
 
-  defp wait_indef3() do
+  def wait_indef3() do
     receive do
       :hello -> nil
     after
       30_000 ->
-        IO.puts("starting new guy")
+        :ok
     end
   end
 
-  defp keep_requesting(_pid, num, _list) when num == 0 do
+  def keep_requesting(_pid, num, _list) when num == 0 do
     nil
   end
 
-  defp keep_requesting(pid, num, list) do
+  def keep_requesting(pid, num, list) do
     {_, req_pid, _, _} = Enum.random(list)
     GenServer.cast(pid, {:request_bitcoin, req_pid, 5})
 
     keep_requesting(pid, num - 1, list)
   end
 
-  defp start_node_mining(spec_list, _m_pid) when spec_list == [] do
+  def start_node_mining(spec_list, _m_pid) when spec_list == [] do
     nil
   end
 
-  defp start_node_mining(spec_list, m_pid) do
+  def start_node_mining(spec_list, m_pid) do
     [{_, pid, _, _} | rest] = spec_list
     GenServer.cast(pid, {:start_mining, m_pid})
     start_node_mining(rest, m_pid)
@@ -59,23 +60,23 @@ defmodule Bitcoin do
     IO.inspect(spec_list)
     start_node_mining(spec_list, mint_pid)
     wait_indef()
-    GenServer.cast(mint_pid, {:print_bro})
+    GenServer.call(mint_pid, {:print_bro}) |> IO.inspect(limit: :infinity)
     child_pid = User.BitcoinSupervisor.add_new_node(mint_pid)
 
     keep_requesting(child_pid, 5, spec_list)
     wait_indef2()
 
-    GenServer.cast(child_pid,{:print_wallet})
-    GenServer.cast(mint_pid, {:print_bro})
+    GenServer.call(child_pid,{:print_wallet}) |> IO.inspect(limit: :infinity)
+    GenServer.call(mint_pid, {:print_bro}) |> IO.inspect(limit: :infinity)
     keep_requesting(child_pid, 5, spec_list)
     wait_indef2()
-    GenServer.cast(child_pid,{:print_wallet})
-    GenServer.cast(mint_pid, {:print_bro})
+    GenServer.call(child_pid,{:print_wallet}) |> IO.inspect(limit: :infinity)
+    GenServer.call(mint_pid, {:print_bro}) |> IO.inspect(limit: :infinity)
     keep_requesting(child_pid, 5, spec_list)
     wait_indef2()
-    GenServer.cast(child_pid,{:print_wallet})
-    GenServer.cast(mint_pid, {:print_bro})
-    GenServer.cast(child_pid,{:print_wallet})
+    GenServer.call(child_pid,{:print_wallet}) |> IO.inspect(limit: :infinity)
+    GenServer.call(mint_pid, {:print_bro}) |> IO.inspect(limit: :infinity)
+    GenServer.call(child_pid,{:print_wallet}) |> IO.inspect(limit: :infinity)
     keep_requesting(child_pid, 5, spec_list)
     wait_indef3()
 
